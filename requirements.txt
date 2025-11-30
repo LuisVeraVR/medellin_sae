@@ -1,0 +1,19 @@
+# GUI Framework
+PyQt6==6.6.1
+PyQt6-Qt6==6.6.1
+PyQt6-sip==13.6.0
+
+# XML Parsing
+lxml==5.1.0
+
+# HTTP Requests
+requests==2.31.0
+
+# Version Comparison
+packaging==23.2
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Build Tool
+pyinstaller==6.3.0

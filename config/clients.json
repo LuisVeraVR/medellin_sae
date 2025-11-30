@@ -1,0 +1,21 @@
+{
+  "clients": [
+    {
+      "id": "triple_a",
+      "name": "Comercializadora Triple A",
+      "enabled": true,
+      "email_config": {
+        "search_criteria": "(UNSEEN SUBJECT \"COMERCIALIZADORA TRIPLE A\")",
+        "imap_server": "outlook.office365.com"
+      },
+      "xml_config": {
+        "format": "ubl_2.1"
+      },
+      "output_config": {
+        "csv_delimiter": ";",
+        "decimal_separator": ",",
+        "decimal_places": 5
+      }
+    }
+  ]
+}
