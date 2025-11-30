@@ -1,7 +1,7 @@
 """Update Service - Application Layer"""
 import logging
 from typing import Optional, Tuple
-from ...domain.repositories.update_repository import UpdateRepository
+from src.domain.repositories.update_repository import UpdateRepository
 
 
 class UpdateService:

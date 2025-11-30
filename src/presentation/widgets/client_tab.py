@@ -7,8 +7,8 @@ from PyQt6.QtWidgets import (
     QTextEdit, QLabel, QCheckBox, QSpinBox, QGroupBox
 )
 from PyQt6.QtCore import QTimer, pyqtSignal
-from ...domain.entities.client import Client
-from ...domain.entities.processing_result import ProcessingResult
+from src.domain.entities.client import Client
+from src.domain.entities.processing_result import ProcessingResult
 
 
 class ClientTab(QWidget):

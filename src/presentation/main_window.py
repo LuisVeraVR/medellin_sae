@@ -12,19 +12,19 @@ from PyQt6.QtCore import QThread, pyqtSignal, QSettings
 from PyQt6.QtGui import QIcon, QAction
 from dotenv import load_dotenv
 
-from ..domain.entities.client import Client
-from ..domain.entities.processing_result import ProcessingResult
-from ..domain.use_cases.process_invoices_use_case import ProcessInvoicesUseCase
-from ..domain.use_cases.check_updates_use_case import CheckUpdatesUseCase
-from ..infrastructure.email.imap_email_repository import IMAPEmailRepository
-from ..infrastructure.xml.ubl_xml_parser import UBLXMLParser
-from ..infrastructure.database.sqlite_repository import SQLiteRepository
-from ..infrastructure.csv.csv_exporter import CSVExporter
-from ..infrastructure.github.github_updater import GitHubUpdater
-from ..application.services.config_service import ConfigService
-from .widgets.client_tab import ClientTab
-from .widgets.config_tab import ConfigTab
-from .widgets.logs_tab import LogsTab
+from src.domain.entities.client import Client
+from src.domain.entities.processing_result import ProcessingResult
+from src.domain.use_cases.process_invoices_use_case import ProcessInvoicesUseCase
+from src.domain.use_cases.check_updates_use_case import CheckUpdatesUseCase
+from src.infrastructure.email.imap_email_repository import IMAPEmailRepository
+from src.infrastructure.xml.ubl_xml_parser import UBLXMLParser
+from src.infrastructure.database.sqlite_repository import SQLiteRepository
+from src.infrastructure.csv.csv_exporter import CSVExporter
+from src.infrastructure.github.github_updater import GitHubUpdater
+from src.application.services.config_service import ConfigService
+from src.presentation.widgets.client_tab import ClientTab
+from src.presentation.widgets.config_tab import ConfigTab
+from src.presentation.widgets.logs_tab import LogsTab
 
 
 class ProcessingWorker(QThread):

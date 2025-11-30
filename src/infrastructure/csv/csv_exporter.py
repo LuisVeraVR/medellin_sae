@@ -3,9 +3,9 @@ import csv
 from pathlib import Path
 from typing import List
 from datetime import datetime
-from ...domain.entities.invoice import Invoice
-from ...domain.entities.client import Client
-from ...domain.repositories.csv_repository import CSVRepository
+from src.domain.entities.invoice import Invoice
+from src.domain.entities.client import Client
+from src.domain.repositories.csv_repository import CSVRepository
 
 
 class CSVExporter(CSVRepository):

@@ -1,8 +1,8 @@
 """XML Parser Service - Application Layer"""
 import logging
 from typing import Optional
-from ...domain.entities.invoice import Invoice
-from ...domain.repositories.xml_parser_repository import XMLParserRepository
+from src.domain.entities.invoice import Invoice
+from src.domain.repositories.xml_parser_repository import XMLParserRepository
 
 
 class XMLParserService:

@@ -3,9 +3,9 @@ from lxml import etree
 from decimal import Decimal
 from datetime import datetime
 from typing import Optional
-from ...domain.entities.invoice import Invoice
-from ...domain.entities.invoice_item import InvoiceItem
-from ...domain.repositories.xml_parser_repository import XMLParserRepository
+from src.domain.entities.invoice import Invoice
+from src.domain.entities.invoice_item import InvoiceItem
+from src.domain.repositories.xml_parser_repository import XMLParserRepository
 
 
 class UBLXMLParser(XMLParserRepository):

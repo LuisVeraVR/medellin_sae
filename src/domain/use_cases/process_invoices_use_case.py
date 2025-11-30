@@ -4,13 +4,13 @@ import zipfile
 import io
 from typing import List
 from datetime import datetime
-from ..entities.client import Client
-from ..entities.invoice import Invoice
-from ..entities.processing_result import ProcessingResult
-from ..repositories.email_repository import EmailRepository
-from ..repositories.xml_parser_repository import XMLParserRepository
-from ..repositories.database_repository import DatabaseRepository
-from ..repositories.csv_repository import CSVRepository
+from src.entities.client import Client
+from src.entities.invoice import Invoice
+from src.entities.processing_result import ProcessingResult
+from src.repositories.email_repository import EmailRepository
+from src.repositories.xml_parser_repository import XMLParserRepository
+from src.repositories.database_repository import DatabaseRepository
+from src.repositories.csv_repository import CSVRepository
 
 
 class ProcessInvoicesUseCase:

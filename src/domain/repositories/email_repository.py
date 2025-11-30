@@ -1,7 +1,7 @@
 """Email Repository Interface - Domain Layer"""
 from abc import ABC, abstractmethod
 from typing import List, Tuple
-from ..entities.client import Client
+from src.entities.client import Client
 
 
 class EmailRepository(ABC):

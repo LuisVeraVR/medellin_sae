@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from ...domain.repositories.database_repository import DatabaseRepository
+from src.domain.repositories.database_repository import DatabaseRepository
 
 
 class SQLiteRepository(DatabaseRepository):

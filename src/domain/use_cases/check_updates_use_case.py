@@ -1,7 +1,7 @@
 """Check Updates Use Case - Domain Layer"""
 import logging
 from typing import Optional, Tuple
-from ..repositories.update_repository import UpdateRepository
+from src.repositories.update_repository import UpdateRepository
 
 
 class CheckUpdatesUseCase:

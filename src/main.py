@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
-from presentation.main_window import MainWindow
+from src.presentation.main_window import MainWindow
 
 
 def main():

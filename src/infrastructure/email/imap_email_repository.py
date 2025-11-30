@@ -3,7 +3,7 @@ import imaplib
 import email
 from email.header import decode_header
 from typing import List, Tuple, Optional
-from ...domain.repositories.email_repository import EmailRepository
+from src.domain.repositories.email_repository import EmailRepository
 
 
 class IMAPEmailRepository(EmailRepository):

@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from typing import Optional, Tuple
 from packaging import version
-from ...domain.repositories.update_repository import UpdateRepository
+from src.domain.repositories.update_repository import UpdateRepository
 
 
 class GitHubUpdater(UpdateRepository):

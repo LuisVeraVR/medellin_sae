@@ -1,8 +1,8 @@
 """Email Service - Application Layer"""
 import logging
 from typing import List
-from ...domain.entities.client import Client
-from ...domain.repositories.email_repository import EmailRepository
+from src.domain.entities.client import Client
+from src.domain.repositories.email_repository import EmailRepository
 
 
 class EmailService:
