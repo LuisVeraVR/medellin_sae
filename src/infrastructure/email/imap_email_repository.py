@@ -15,12 +15,44 @@ class IMAPEmailRepository(EmailRepository):
     def connect(self, email_addr: str, password: str, imap_server: str) -> bool:
         """Connect to IMAP server"""
         try:
-            self.imap = imaplib.IMAP4_SSL(imap_server)
-            self.imap.login(email_addr, password)
+            # Try to connect with SSL
+            self.imap = imaplib.IMAP4_SSL(imap_server, 993)
+
+            # Enable debug if needed (shows IMAP conversation)
+            # self.imap.debug = 4
+
+            # Try login
+            result = self.imap.login(email_addr, password)
+
+            # Select INBOX
             self.imap.select('INBOX')
             return True
+
+        except imaplib.IMAP4.error as e:
+            error_msg = str(e)
+
+            # Provide helpful error messages
+            if b'LOGIN failed' in str(e).encode() or 'LOGIN failed' in str(e):
+                raise ConnectionError(
+                    f"Failed to login to IMAP server: {error_msg}\n\n"
+                    "Posibles soluciones:\n"
+                    "1. Verifica que IMAP esté habilitado en tu cuenta de Outlook\n"
+                    "   (Outlook Web > Configuración > Ver toda la configuración > Correo > Sincronizar correo)\n"
+                    "2. Si tienes verificación en 2 pasos, usa una 'Contraseña de aplicación':\n"
+                    "   - Cuenta Microsoft: https://account.microsoft.com/security\n"
+                    "   - Office 365: https://mysignins.microsoft.com/security-info\n"
+                    "3. Ejecuta 'python test_imap.py' para diagnosticar el problema\n"
+                )
+            else:
+                raise ConnectionError(f"IMAP error: {error_msg}")
+
         except Exception as e:
-            raise ConnectionError(f"Failed to connect to IMAP server: {str(e)}")
+            raise ConnectionError(
+                f"Failed to connect to IMAP server: {str(e)}\n"
+                f"Servidor: {imap_server}:993\n"
+                f"Email: {email_addr}\n"
+                "Ejecuta 'python test_imap.py' para diagnosticar"
+            )
 
     def search_emails(self, search_criteria: str) -> List[str]:
         """Search emails by criteria"""
