@@ -6,7 +6,7 @@
       "enabled": true,
       "email_config": {
         "search_criteria": "(UNSEEN SUBJECT \"COMERCIALIZADORA TRIPLE A\")",
-        "imap_server": "outlook.office365.com"
+        "imap_server": "imap.correagro.com"
       },
       "xml_config": {
         "format": "ubl_2.1"
