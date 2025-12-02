@@ -14,6 +14,83 @@ from src.infrastructure.database.somex_repository import SomexRepository
 from src.infrastructure.sftp.somex_sftp_client import SomexSftpClient
 
 
+class ItemsImporter:
+    """Helper class to import items from Excel file"""
+
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+
+    def import_items_from_excel(self, excel_path: str) -> List[Dict[str, Any]]:
+        """
+        Import items from Excel file
+
+        Expected columns:
+        CodigoItem, Referencia, Descripcion, IdPlan, DescPlan,
+        IdMayor, DescripcionPlan, RowIdItem, Categoria
+
+        Args:
+            excel_path: Path to Excel file
+
+        Returns:
+            List of item dictionaries
+        """
+        items = []
+
+        try:
+            wb = openpyxl.load_workbook(excel_path, read_only=True)
+            ws = wb.active
+
+            # Read headers from first row
+            headers = []
+            for cell in ws[1]:
+                headers.append(cell.value)
+
+            self.logger.info(f"Excel headers: {headers}")
+
+            # Map expected columns (case insensitive)
+            column_map = {}
+            expected_columns = [
+                'CodigoItem', 'Referencia', 'Descripcion', 'IdPlan', 'DescPlan',
+                'IdMayor', 'DescripcionPlan', 'RowIdItem', 'Categoria'
+            ]
+
+            for expected in expected_columns:
+                for idx, header in enumerate(headers):
+                    if header and expected.lower() == str(header).lower().replace(' ', ''):
+                        column_map[expected] = idx
+                        break
+
+            self.logger.info(f"Column mapping: {column_map}")
+
+            # Read data rows
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                item = {
+                    'codigo_item': str(row[column_map.get('CodigoItem', 0)] or '').strip(),
+                    'referencia': str(row[column_map.get('Referencia', 1)] or '').strip(),
+                    'descripcion': str(row[column_map.get('Descripcion', 2)] or '').strip(),
+                    'id_plan': str(row[column_map.get('IdPlan', 3)] or '').strip(),
+                    'desc_plan': str(row[column_map.get('DescPlan', 4)] or '').strip(),
+                    'id_mayor': str(row[column_map.get('IdMayor', 5)] or '').strip(),
+                    'descripcion_plan': str(row[column_map.get('DescripcionPlan', 6)] or '').strip(),
+                    'row_id_item': str(row[column_map.get('RowIdItem', 7)] or '').strip(),
+                    'categoria': str(row[column_map.get('Categoria', 8)] or '').strip(),
+                }
+
+                # Only add if has codigo_item
+                if item['codigo_item']:
+                    items.append(item)
+
+            wb.close()
+
+            self.logger.info(f"Imported {len(items)} items from Excel")
+
+        except Exception as e:
+            self.logger.error(f"Error importing items from Excel: {e}")
+            raise
+
+        return items
+
+
 class SomexProcessorService:
     """Service for processing Somex ZIP files and generating Excel reports"""
 
@@ -48,14 +125,30 @@ class SomexProcessorService:
         xml_files = []
 
         try:
+            self.logger.info(f"Opening ZIP file: {zip_path}")
+
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                all_files = zip_ref.namelist()
+                self.logger.info(f"Files in ZIP: {all_files}")
+
                 for file_info in zip_ref.filelist:
+                    self.logger.debug(f"Checking file: {file_info.filename}")
+
                     if file_info.filename.lower().endswith('.xml'):
+                        self.logger.info(f"Reading XML: {file_info.filename}")
                         xml_content = zip_ref.read(file_info.filename)
+                        self.logger.info(
+                            f"XML content size: {len(xml_content)} bytes"
+                        )
                         xml_files.append((file_info.filename, xml_content))
 
-            self.logger.info(f"Extracted {len(xml_files)} XML files from {zip_path}")
+            self.logger.info(
+                f"Extracted {len(xml_files)} XML files from {Path(zip_path).name}"
+            )
 
+        except zipfile.BadZipFile as e:
+            self.logger.error(f"Invalid ZIP file {zip_path}: {e}")
+            raise
         except Exception as e:
             self.logger.error(f"Error extracting XMLs from ZIP {zip_path}: {e}")
             raise
@@ -109,7 +202,11 @@ class SomexProcessorService:
             Dictionary with invoice data
         """
         try:
+            self.logger.info(f"Parsing XML content ({len(xml_content)} bytes)")
             tree = etree.fromstring(xml_content)
+
+            # Log root tag
+            self.logger.info(f"XML root tag: {tree.tag}")
 
             # Extract invoice data
             invoice_data = {
@@ -120,6 +217,8 @@ class SomexProcessorService:
                     tree, './/cac:DeliveryLocation//cbc:CityName'
                 ),
             }
+
+            self.logger.info(f"Invoice number: {invoice_data['invoice_number']}")
 
             # Extract seller information
             seller_party = tree.find(
@@ -157,17 +256,30 @@ class SomexProcessorService:
 
             # Extract line items
             lines = tree.findall('.//cac:InvoiceLine', self.NAMESPACES)
+            self.logger.info(f"Found {len(lines)} invoice lines")
+
             invoice_data['items'] = []
 
-            for line in lines:
+            for idx, line in enumerate(lines, 1):
+                self.logger.debug(f"Parsing line item {idx}")
                 item = self._parse_line_item(line)
                 if item:
                     invoice_data['items'].append(item)
+                    self.logger.debug(
+                        f"  - Product: {item['product_name']}, "
+                        f"Code: {item['product_code']}, "
+                        f"Qty: {item['quantity']}"
+                    )
+
+            self.logger.info(
+                f"Parsed invoice {invoice_data['invoice_number']} "
+                f"with {len(invoice_data['items'])} items"
+            )
 
             return invoice_data
 
         except Exception as e:
-            self.logger.error(f"Error parsing XML: {e}")
+            self.logger.error(f"Error parsing XML: {e}", exc_info=True)
             return None
 
     def _parse_line_item(self, line_element) -> Optional[Dict[str, Any]]:

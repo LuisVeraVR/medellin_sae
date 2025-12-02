@@ -12,7 +12,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from src.infrastructure.sftp.somex_sftp_client import SomexSftpClient
 from src.infrastructure.database.somex_repository import SomexRepository
-from src.application.services.somex_processor_service import SomexProcessorService
+from src.application.services.somex_processor_service import (
+    SomexProcessorService,
+    ItemsImporter
+)
 
 
 class ProcessingWorker(QThread):
@@ -285,6 +288,7 @@ class SomexTab(QWidget):
             logger=self.logger,
             output_dir="output/somex"
         )
+        self.items_importer = ItemsImporter(logger=self.logger)
 
         self._init_ui()
 
@@ -380,6 +384,40 @@ class SomexTab(QWidget):
 
         files_group.setLayout(files_layout)
         layout.addWidget(files_group)
+
+        # Grupo de Items
+        items_group = QGroupBox("Importar Items")
+        items_layout = QVBoxLayout()
+
+        # Descripción de items
+        items_desc = QLabel(
+            "<b>Importar Excel con Items (CodigoItem, Referencia, Descripcion, etc.):</b><br>"
+            "Este Excel se usa para hacer match con los productos de las facturas XML."
+        )
+        items_desc.setWordWrap(True)
+        items_layout.addWidget(items_desc)
+
+        # Botones de items
+        items_btn_layout = QHBoxLayout()
+
+        self.import_items_btn = QPushButton("Importar Excel de Items")
+        self.import_items_btn.clicked.connect(self._on_import_items_clicked)
+        items_btn_layout.addWidget(self.import_items_btn)
+
+        self.view_items_btn = QPushButton("Ver Items Cargados")
+        self.view_items_btn.clicked.connect(self._on_view_items_clicked)
+        items_btn_layout.addWidget(self.view_items_btn)
+
+        items_btn_layout.addStretch()
+        items_layout.addLayout(items_btn_layout)
+
+        # Label de estado de items
+        self.items_status_label = QLabel("No se han importado items")
+        self.items_status_label.setStyleSheet("color: gray; font-style: italic;")
+        items_layout.addWidget(self.items_status_label)
+
+        items_group.setLayout(items_layout)
+        layout.addWidget(items_group)
 
         # Grupo de procesamiento automático
         auto_group = QGroupBox("Procesamiento Automático de ZIPs")
@@ -698,6 +736,106 @@ class SomexTab(QWidget):
             "Error de Procesamiento",
             f"Ocurrió un error durante el procesamiento:\n\n{error_message}"
         )
+
+    def _on_import_items_clicked(self) -> None:
+        """Manejar click en botón Importar Items"""
+        # Abrir diálogo para seleccionar Excel
+        excel_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Seleccionar Excel de Items",
+            "",
+            "Excel Files (*.xlsx *.xls);;All Files (*.*)"
+        )
+
+        if not excel_path:
+            return  # Usuario canceló
+
+        try:
+            # Importar items
+            self.progress_text.append(f"Importando items desde: {excel_path}")
+
+            items = self.items_importer.import_items_from_excel(excel_path)
+
+            if not items:
+                QMessageBox.warning(
+                    self,
+                    "Sin Items",
+                    "No se encontraron items en el Excel.\n\n"
+                    "Verifique que el archivo tenga las columnas correctas:\n"
+                    "CodigoItem, Referencia, Descripcion, IdPlan, DescPlan, "
+                    "IdMayor, DescripcionPlan, RowIdItem, Categoria"
+                )
+                return
+
+            # Guardar en base de datos
+            count = self.repository.save_items_bulk(items)
+
+            # Actualizar status
+            self.items_status_label.setText(
+                f"✓ {count} items importados correctamente"
+            )
+            self.items_status_label.setStyleSheet("color: green;")
+
+            self.progress_text.append(f"✓ {count} items importados exitosamente")
+
+            QMessageBox.information(
+                self,
+                "Importación Exitosa",
+                f"Se importaron {count} items correctamente.\n\n"
+                f"Los items están listos para usar en el procesamiento de facturas."
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error importando items: {e}")
+            self.progress_text.append(f"✗ Error importando items: {str(e)}")
+
+            QMessageBox.critical(
+                self,
+                "Error de Importación",
+                f"Error al importar items:\n\n{str(e)}\n\n"
+                f"Verifique que el Excel tenga el formato correcto."
+            )
+
+    def _on_view_items_clicked(self) -> None:
+        """Manejar click en botón Ver Items"""
+        try:
+            items = self.repository.get_all_items()
+
+            if not items:
+                QMessageBox.information(
+                    self,
+                    "Sin Items",
+                    "No hay items importados.\n\n"
+                    "Use el botón 'Importar Excel de Items' para cargar items."
+                )
+                return
+
+            # Mostrar primeros 10 items
+            items_text = f"Items Importados ({len(items)} total)\n"
+            items_text += "=" * 60 + "\n\n"
+
+            for i, item in enumerate(items[:10], 1):
+                items_text += f"{i}. Código: {item['codigo_item']}\n"
+                items_text += f"   Referencia: {item['referencia']}\n"
+                items_text += f"   Descripción: {item['descripcion']}\n"
+                items_text += f"   Categoría: {item['categoria']}\n\n"
+
+            if len(items) > 10:
+                items_text += f"\n... y {len(items) - 10} items más"
+
+            QMessageBox.information(
+                self,
+                f"Items Cargados ({len(items)})",
+                items_text
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error obteniendo items: {e}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Error al obtener items:\n\n{str(e)}"
+            )
 
     def _on_stats_clicked(self) -> None:
         """Mostrar estadísticas de procesamiento"""

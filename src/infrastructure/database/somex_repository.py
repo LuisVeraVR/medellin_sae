@@ -163,6 +163,61 @@ class SomexRepository:
         conn.commit()
         conn.close()
 
+    def save_items_bulk(self, items: List[Dict[str, Any]]) -> int:
+        """Save multiple items in bulk"""
+        timestamp = datetime.now()
+        count = 0
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        for item_data in items:
+            cursor.execute(
+                '''INSERT INTO somex_items
+                   (codigo_item, referencia, descripcion, id_plan, desc_plan,
+                    id_mayor, descripcion_plan, row_id_item, categoria,
+                    created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(codigo_item, referencia) DO UPDATE SET
+                       descripcion = excluded.descripcion,
+                       id_plan = excluded.id_plan,
+                       desc_plan = excluded.desc_plan,
+                       id_mayor = excluded.id_mayor,
+                       descripcion_plan = excluded.descripcion_plan,
+                       row_id_item = excluded.row_id_item,
+                       categoria = excluded.categoria,
+                       updated_at = excluded.updated_at''',
+                (
+                    item_data.get('codigo_item', ''),
+                    item_data.get('referencia', ''),
+                    item_data.get('descripcion', ''),
+                    item_data.get('id_plan', ''),
+                    item_data.get('desc_plan', ''),
+                    item_data.get('id_mayor', ''),
+                    item_data.get('descripcion_plan', ''),
+                    item_data.get('row_id_item', ''),
+                    item_data.get('categoria', ''),
+                    timestamp,
+                    timestamp
+                )
+            )
+            count += 1
+
+        conn.commit()
+        conn.close()
+
+        return count
+
+    def clear_all_items(self) -> None:
+        """Clear all items from the database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('DELETE FROM somex_items')
+
+        conn.commit()
+        conn.close()
+
     def get_item_by_code(self, codigo_item: str) -> Optional[Dict[str, Any]]:
         """Get item information by code"""
         conn = sqlite3.connect(self.db_path)
