@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLineEdit, QTableWidget, QTableWidgetItem, QMessageBox,
     QLabel, QHeaderView, QGroupBox, QFileDialog, QProgressDialog,
-    QTextEdit
+    QTextEdit, QInputDialog
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from src.infrastructure.sftp.somex_sftp_client import SomexSftpClient
@@ -30,12 +30,14 @@ class ProcessingWorker(QThread):
         self,
         logger: logging.Logger,
         repository: SomexRepository,
-        processor: SomexProcessorService
+        processor: SomexProcessorService,
+        password: str
     ):
         super().__init__()
         self.logger = logger
         self.repository = repository
         self.processor = processor
+        self.password = password
         self.sftp_client: Optional[SomexSftpClient] = None
         self.remote_dir = "/DocumentosPendientes"
 
@@ -46,7 +48,12 @@ class ProcessingWorker(QThread):
             self.progress_update.emit("Conectando a servidor SFTP de Somex...")
             self.sftp_client = SomexSftpClient(logger=self.logger)
 
-            success, message = self.sftp_client.connect(self.remote_dir)
+            success, message = self.sftp_client.connect(
+                self.remote_dir,
+                password=self.password,
+                max_retries=3,
+                timeout=30
+            )
             if not success:
                 self.error_occurred.emit(f"Error de conexión: {message}")
                 return
@@ -216,6 +223,7 @@ class SftpWorker(QThread):
         self.remote_dir = "/"
         self.remote_file = ""
         self.local_file = ""
+        self.password = ""
 
     def set_operation(self, operation: str, **kwargs) -> None:
         """
@@ -229,6 +237,7 @@ class SftpWorker(QThread):
         self.remote_dir = kwargs.get('remote_dir', '/')
         self.remote_file = kwargs.get('remote_file', '')
         self.local_file = kwargs.get('local_file', '')
+        self.password = kwargs.get('password', '')
 
     def run(self) -> None:
         """Ejecutar operación SFTP en background"""
@@ -246,8 +255,13 @@ class SftpWorker(QThread):
         # Crear nuevo cliente SFTP
         self.sftp_client = SomexSftpClient(logger=self.logger)
 
-        # Intentar conectar
-        success, message = self.sftp_client.connect(self.remote_dir)
+        # Intentar conectar con reintentos y timeout largo
+        success, message = self.sftp_client.connect(
+            self.remote_dir,
+            password=self.password,
+            max_retries=3,
+            timeout=30
+        )
         self.connection_result.emit(success, message)
 
         if success:
@@ -323,7 +337,8 @@ class SomexTab(QWidget):
         # Info de servidor
         info_label = QLabel(
             "<i>Servidor: 170.239.154.159 (somexapp.com) | Puerto: 22 | "
-            "Usuario: usuario.bolsaagro</i>"
+            "Usuario: usuario.bolsaagro</i><br>"
+            "<b>Nota:</b> La contraseña se solicitará en cada conexión y NO se guarda."
         )
         info_label.setWordWrap(True)
         config_layout.addWidget(info_label)
@@ -474,6 +489,22 @@ class SomexTab(QWidget):
 
     def _on_connect_clicked(self) -> None:
         """Manejar click en botón Conectar"""
+        # Pedir contraseña al usuario
+        password, ok = QInputDialog.getText(
+            self,
+            "Autenticación SFTP - Somex",
+            "Ingrese la contraseña para usuario.bolsaagro:",
+            QLineEdit.EchoMode.Password
+        )
+
+        if not ok or not password:
+            QMessageBox.warning(
+                self,
+                "Contraseña Requerida",
+                "Debe ingresar una contraseña para conectarse."
+            )
+            return
+
         # Deshabilitar botón durante la conexión
         self.connect_btn.setEnabled(False)
         self.status_input.setText("Conectando...")
@@ -483,7 +514,7 @@ class SomexTab(QWidget):
 
         # Crear y configurar worker
         self.worker = SftpWorker(self.logger)
-        self.worker.set_operation('connect', remote_dir=remote_dir)
+        self.worker.set_operation('connect', remote_dir=remote_dir, password=password)
 
         # Conectar señales
         self.worker.connection_result.connect(self._on_connection_result)
@@ -503,11 +534,13 @@ class SomexTab(QWidget):
             QMessageBox.critical(
                 self,
                 "Error de Conexión",
-                f"No se pudo conectar al servidor SFTP:\n\n{message}\n\n"
-                "Verifique:\n"
-                "- Variable de entorno SFTP_SOMEX_PASS está configurada\n"
-                "- Credenciales son correctas\n"
-                "- Servidor es accesible"
+                f"No se pudo conectar al servidor SFTP después de 3 intentos:\n\n{message}\n\n"
+                "Posibles causas:\n"
+                "- Contraseña incorrecta\n"
+                "- Servidor no responde (timeout de red)\n"
+                "- Problemas de conectividad\n"
+                "- Firewall bloqueando el puerto 22\n\n"
+                "El sistema intentó reconectar automáticamente con espera exponencial."
             )
             self.connect_btn.setEnabled(True)
 
@@ -639,6 +672,23 @@ class SomexTab(QWidget):
 
     def _on_process_clicked(self) -> None:
         """Manejar click en botón Procesar Todos los ZIPs"""
+        # Pedir contraseña al usuario
+        password, ok = QInputDialog.getText(
+            self,
+            "Autenticación SFTP - Somex",
+            "Ingrese la contraseña para usuario.bolsaagro\n"
+            "para conectarse y procesar los ZIPs:",
+            QLineEdit.EchoMode.Password
+        )
+
+        if not ok or not password:
+            QMessageBox.warning(
+                self,
+                "Contraseña Requerida",
+                "Debe ingresar una contraseña para conectarse al servidor SFTP."
+            )
+            return
+
         # Confirmar con el usuario
         reply = QMessageBox.question(
             self,
@@ -668,7 +718,8 @@ class SomexTab(QWidget):
         self.processing_worker = ProcessingWorker(
             logger=self.logger,
             repository=self.repository,
-            processor=self.processor
+            processor=self.processor,
+            password=password
         )
 
         # Conectar señales

@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 import paramiko
 from pathlib import Path
+import time
 
 
 class SomexSftpClient:
@@ -26,70 +27,110 @@ class SomexSftpClient:
         self.host = "170.239.154.159"  # También puede ser "somexapp.com"
         self.port = 22
         self.username = "usuario.bolsaagro"
-        self.password = os.getenv('SFTP_SOMEX_PASS', '')
 
-    def connect(self, remote_dir: str = "/") -> Tuple[bool, str]:
+    def connect(
+        self,
+        remote_dir: str = "/",
+        password: Optional[str] = None,
+        max_retries: int = 3,
+        timeout: int = 30
+    ) -> Tuple[bool, str]:
         """
-        Establecer conexión SFTP con el servidor
+        Establecer conexión SFTP con el servidor con reintentos automáticos
 
         Args:
             remote_dir: Directorio remoto al que navegar después de conectar
+            password: Contraseña para autenticación (si es None, intenta leer de variable de entorno)
+            max_retries: Número máximo de intentos de conexión (por defecto 3)
+            timeout: Timeout de conexión en segundos (por defecto 30)
 
         Returns:
             Tupla (éxito, mensaje de estado)
         """
-        try:
-            # Validar contraseña
-            if not self.password:
-                return False, "Error: Variable de entorno SFTP_SOMEX_PASS no configurada"
+        # Validar contraseña
+        pwd = password or os.getenv('SFTP_SOMEX_PASS', '')
+        if not pwd:
+            return False, "Error: Se requiere contraseña. Proporcione el parámetro 'password' o configure SFTP_SOMEX_PASS"
 
-            # Crear cliente SSH
-            self.ssh_client = paramiko.SSHClient()
-
-            # Configurar política de claves (aceptar claves desconocidas)
-            # En producción, considerar usar una política más estricta
-            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-            self.logger.info(f"Conectando a {self.host}:{self.port} como {self.username}...")
-
-            # Conectar al servidor
-            self.ssh_client.connect(
-                hostname=self.host,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                timeout=10
-            )
-
-            # Abrir sesión SFTP
-            self.sftp_client = self.ssh_client.open_sftp()
-
-            # Cambiar al directorio remoto
+        # Intentar conectar con reintentos
+        last_error = None
+        for attempt in range(1, max_retries + 1):
             try:
-                self.sftp_client.chdir(remote_dir)
-                current_dir = self.sftp_client.getcwd()
-                self.logger.info(f"Directorio actual: {current_dir}")
-            except IOError as e:
-                self.logger.warning(f"No se pudo cambiar a {remote_dir}: {e}")
-                # Continuar de todos modos
+                self.logger.info(
+                    f"Intento {attempt}/{max_retries}: Conectando a {self.host}:{self.port} "
+                    f"como {self.username}..."
+                )
 
-            self.connected = True
-            return True, f"Conectado exitosamente a {self.host}"
+                # Crear cliente SSH
+                self.ssh_client = paramiko.SSHClient()
 
-        except paramiko.AuthenticationException:
-            error_msg = "Error de autenticación: Usuario o contraseña incorrectos"
-            self.logger.error(error_msg)
-            return False, error_msg
+                # Configurar política de claves (aceptar claves desconocidas)
+                self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        except paramiko.SSHException as e:
-            error_msg = f"Error SSH: {str(e)}"
-            self.logger.error(error_msg)
-            return False, error_msg
+                # Configurar timeouts más agresivos para manejar conexiones lentas
+                self.logger.info(f"Timeout configurado: {timeout} segundos")
 
-        except Exception as e:
-            error_msg = f"Error de conexión: {str(e)}"
-            self.logger.error(error_msg)
-            return False, error_msg
+                # Conectar al servidor
+                self.ssh_client.connect(
+                    hostname=self.host,
+                    port=self.port,
+                    username=self.username,
+                    password=pwd,
+                    timeout=timeout,
+                    banner_timeout=timeout,
+                    auth_timeout=timeout
+                )
+
+                # Abrir sesión SFTP
+                self.sftp_client = self.ssh_client.open_sftp()
+
+                # Cambiar al directorio remoto
+                try:
+                    self.sftp_client.chdir(remote_dir)
+                    current_dir = self.sftp_client.getcwd()
+                    self.logger.info(f"Directorio actual: {current_dir}")
+                except IOError as e:
+                    self.logger.warning(f"No se pudo cambiar a {remote_dir}: {e}")
+                    # Continuar de todos modos
+
+                self.connected = True
+                self.logger.info(f"✓ Conexión exitosa en el intento {attempt}")
+                return True, f"Conectado exitosamente a {self.host}"
+
+            except paramiko.AuthenticationException as e:
+                error_msg = "Error de autenticación: Usuario o contraseña incorrectos"
+                self.logger.error(error_msg)
+                # No reintentar en caso de error de autenticación
+                return False, error_msg
+
+            except (paramiko.SSHException, OSError, Exception) as e:
+                last_error = e
+                error_type = type(e).__name__
+                error_msg = str(e)
+
+                self.logger.warning(
+                    f"✗ Intento {attempt}/{max_retries} falló: {error_type}: {error_msg}"
+                )
+
+                # Si no es el último intento, esperar antes de reintentar
+                if attempt < max_retries:
+                    wait_time = 2 ** attempt  # Backoff exponencial: 2, 4, 8 segundos
+                    self.logger.info(f"Esperando {wait_time} segundos antes del siguiente intento...")
+                    time.sleep(wait_time)
+
+                    # Limpiar cliente SSH anterior
+                    if self.ssh_client:
+                        try:
+                            self.ssh_client.close()
+                        except:
+                            pass
+                        self.ssh_client = None
+                        self.sftp_client = None
+
+        # Si llegamos aquí, todos los intentos fallaron
+        final_error = f"Error de conexión después de {max_retries} intentos: {str(last_error)}"
+        self.logger.error(final_error)
+        return False, final_error
 
     def list_files(self, remote_path: str = ".") -> List[Dict[str, any]]:
         """
