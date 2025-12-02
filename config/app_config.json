@@ -1,0 +1,7 @@
+{
+  "github_repo_url": "https://github.com/LuisVeraVR/medellin_sae",
+  "check_updates_on_startup": true,
+  "auto_update_enabled": true,
+  "log_level": "INFO",
+  "output_directory": "output"
+}
