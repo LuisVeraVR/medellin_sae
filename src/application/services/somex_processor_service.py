@@ -251,15 +251,19 @@ class SomexProcessorService:
 
             if description_elem is None or not description_elem.text:
                 self.logger.error("No Description element with CDATA found")
+                self.logger.error("AttachedDocument structure:")
+                self.logger.error(etree.tostring(attached_doc_tree, pretty_print=True).decode()[:1000])
                 return None
 
             # The CDATA contains the actual Invoice XML
             embedded_xml = description_elem.text.strip()
 
             self.logger.info(f"Embedded XML length: {len(embedded_xml)} characters")
+            self.logger.info(f"Embedded XML first 500 chars: {embedded_xml[:500]}")
 
             # Parse the embedded XML
             invoice_tree = etree.fromstring(embedded_xml.encode('utf-8'))
+            self.logger.info(f"Successfully parsed embedded Invoice, root: {invoice_tree.tag}")
 
             return invoice_tree
 
@@ -332,19 +336,26 @@ class SomexProcessorService:
 
             # Extract line items using Somex-specific parsing
             lines = tree.findall('.//cac:InvoiceLine', self.NAMESPACES)
-            self.logger.info(f"Found {len(lines)} invoice lines")
+            self.logger.info(f"Found {len(lines)} invoice lines for invoice {invoice_number}")
+
+            if len(lines) == 0:
+                self.logger.warning("No InvoiceLine elements found!")
+                self.logger.warning("XML structure (first 1000 chars):")
+                self.logger.warning(etree.tostring(tree, pretty_print=True).decode()[:1000])
 
             for idx, line in enumerate(lines, 1):
-                self.logger.debug(f"Parsing Somex line item {idx}")
+                self.logger.info(f"Parsing Somex line item {idx}/{len(lines)}")
                 item = self._parse_somex_line_item(line)
                 if item:
                     invoice_data['items'].append(item)
-                    self.logger.debug(
-                        f"  - Product: {item['product_name']}, "
+                    self.logger.info(
+                        f"  ✓ Product: {item['product_name']}, "
                         f"Code: {item['product_code']}, "
-                        f"Qty: {item['quantity']}, "
+                        f"Qty Original: {item['quantity_original']}, "
                         f"Qty Adjusted: {item['quantity_adjusted']}"
                     )
+                else:
+                    self.logger.warning(f"  ✗ Failed to parse line item {idx}")
 
             self.logger.info(
                 f"Parsed Somex invoice {invoice_number} "
@@ -749,11 +760,25 @@ class SomexProcessorService:
                 results['invoices'].append(invoice_data)
                 results['processed_xmls'] += 1
 
-                self.logger.info(f"Parsed XML {xml_filename}")
+                self.logger.info(
+                    f"Parsed XML {xml_filename}: "
+                    f"Invoice {invoice_data.get('invoice_number', 'N/A')} "
+                    f"with {len(invoice_data.get('items', []))} items"
+                )
 
         except Exception as e:
             self.logger.error(f"Error processing ZIP file {zip_filename}: {e}")
             raise
+
+        self.logger.info(
+            f"=== process_zip_file summary for {zip_filename} ==="
+        )
+        self.logger.info(f"Total invoices parsed: {len(results['invoices'])}")
+        for inv in results['invoices']:
+            self.logger.info(
+                f"  - {inv.get('invoice_number', 'N/A')}: "
+                f"{len(inv.get('items', []))} items"
+            )
 
         return results
 
@@ -772,6 +797,17 @@ class SomexProcessorService:
         Returns:
             Path to created Excel file
         """
+        # CRITICAL LOGGING: Check what we received
+        self.logger.info(f"=== create_consolidated_excel called ===")
+        self.logger.info(f"Total invoices received: {len(all_invoices)}")
+
+        for idx, inv in enumerate(all_invoices, 1):
+            items_count = len(inv.get('items', []))
+            self.logger.info(
+                f"  Invoice {idx}: {inv.get('invoice_number', 'N/A')} "
+                f"with {items_count} items"
+            )
+
         if not output_filename:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             output_filename = f"somex_facturas_consolidadas_{timestamp}.xlsx"
@@ -826,8 +862,16 @@ class SomexProcessorService:
 
         # Write data rows for all invoices
         row_num = 2
+        self.logger.info(f"Starting to write invoice rows...")
+
         for invoice_data in all_invoices:
-            for item in invoice_data.get('items', []):
+            items = invoice_data.get('items', [])
+            self.logger.info(
+                f"Processing invoice {invoice_data.get('invoice_number', 'N/A')}: "
+                f"{len(items)} items"
+            )
+
+            for item in items:
                 # N° Factura
                 ws.cell(row=row_num, column=1).value = invoice_data.get(
                     'invoice_number', ''

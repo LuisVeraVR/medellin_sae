@@ -149,6 +149,14 @@ class ProcessingWorker(QThread):
                     )
 
             # Generar Excel consolidado con todas las facturas
+            self.logger.info(f"=== Before Excel generation ===")
+            self.logger.info(f"Total invoices accumulated: {len(all_invoices)}")
+            for idx, inv in enumerate(all_invoices, 1):
+                self.logger.info(
+                    f"  Invoice {idx}: {inv.get('invoice_number', 'N/A')} "
+                    f"with {len(inv.get('items', []))} items"
+                )
+
             if all_invoices:
                 self.progress_update.emit(
                     f"\nGenerando Excel consolidado con {len(all_invoices)} facturas..."
