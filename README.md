@@ -1,11 +1,12 @@
 # Medellin SAE - Sistema de Procesamiento de Facturas Electrónicas
 
-Aplicación de escritorio con PyQt6 para el procesamiento automático de facturas electrónicas UBL 2.1 desde correo electrónico, con auto-actualización desde GitHub.
+Aplicación de escritorio con PyQt6 para el procesamiento automático de facturas electrónicas UBL 2.1 desde correo electrónico, con auto-actualización desde GitHub y gestión de archivos SFTP.
 
 ## 🚀 Características
 
 - ✅ **Arquitectura Clean**: Separación clara de capas (Domain, Application, Infrastructure, Presentation)
 - ✅ **Multi-cliente**: Sistema de tabs para gestionar múltiples clientes
+- ✅ **Tab Somex SFTP**: Conexión SFTP para descarga de archivos XML/ZIP
 - ✅ **Auto-actualización**: Actualización automática desde GitHub Releases
 - ✅ **Procesamiento IMAP**: Conexión a Outlook/Office365 vía IMAP
 - ✅ **Parser UBL 2.1**: Extracción de datos de XML en formato UBL 2.1 Colombia
@@ -14,90 +15,119 @@ Aplicación de escritorio con PyQt6 para el procesamiento automático de factura
 - ✅ **Logging Completo**: Sistema de logs rotativo con niveles
 - ✅ **GUI PyQt6**: Interfaz moderna con tabs y modo automático
 
-## 📋 Requisitos
+## ⚡ Inicio Rápido
 
-- Python 3.9+
-- Windows/Linux/macOS
+### 1. Requisitos Previos
+
+- Python 3.9+ (Windows/Linux/macOS)
 - Credenciales de email (Outlook/Office365)
+- Para Somex: Contraseña SFTP
 
-## 🔧 Instalación
-
-### 1. Clonar el repositorio
+### 2. Instalación
 
 ```bash
+# Clonar el repositorio
 git clone https://github.com/LuisVeraVR/medellin_sae.git
 cd medellin_sae
-```
 
-### 2. Crear entorno virtual
-
-```bash
+# Crear entorno virtual
 python -m venv venv
 
-# Windows
+# Activar entorno virtual
+# Windows:
 venv\Scripts\activate
-
-# Linux/macOS
+# Linux/macOS:
 source venv/bin/activate
-```
 
-### 3. Instalar dependencias
-
-```bash
+# Instalar dependencias
 pip install -r requirements.txt
 ```
 
-### 4. Configurar credenciales
+### 3. Configurar Credenciales
 
-Copiar `.env.example` a `.env` y configurar:
+Copiar `.env.example` a `.env`:
 
 ```bash
 cp .env.example .env
 ```
 
-Editar `.env`:
+Editar `.env` con tus credenciales:
 
 ```env
-CORREAGRO_EMAIL=tu_email@example.com
+# Email Configuration
+CORREAGRO_EMAIL=tu_email@outlook.com
 CORREAGRO_PASSWORD=tu_password
+
+# Somex SFTP Configuration
+SFTP_SOMEX_PASS=tu_contraseña_sftp
 ```
 
-## 🎯 Uso
-
-### Ejecutar en modo desarrollo
+### 4. Ejecutar
 
 ```bash
 python run.py
 ```
 
-### Build ejecutable (Windows)
+## 📱 Tabs Disponibles
 
-```bash
-python build.py
-```
+### Tab Somex - Gestión SFTP
 
-El ejecutable se generará en `dist/MedellinSAE.exe`
+El tab Somex permite conectarse al servidor SFTP para descargar archivos XML/ZIP del cliente Somex.
+
+#### Configuración Somex
+
+**Información del servidor:**
+- Host: `170.239.154.159` (también `somexapp.com`)
+- Puerto: `22`
+- Usuario: `usuario.bolsaagro`
+- Contraseña: Variable de entorno `SFTP_SOMEX_PASS`
+
+#### Uso del Tab Somex
+
+1. **Conectar**: Ingresar directorio remoto (por defecto `/`) y clic en "Conectar y Listar XML"
+2. **Listar**: Automáticamente muestra archivos XML y ZIP con: nombre, tamaño (KB), fecha, tipo
+3. **Descargar**: Seleccionar archivo y clic en "Descargar Seleccionado"
+4. **Refrescar**: Actualizar lista con el botón "Refrescar Lista"
+
+#### Errores Comunes Somex
+
+- **Variable no configurada**: Asegurar que `SFTP_SOMEX_PASS` esté en `.env`
+- **Error de autenticación**: Verificar usuario y contraseña
+- **Error de conexión**: Verificar acceso al servidor y red
+
+### Tabs de Clientes
+
+Cada cliente habilitado tiene su propio tab con:
+- Botón "Procesar Ahora" para procesamiento manual
+- Modo automático configurable por intervalo
+- Estadísticas de procesamiento
+- Log de operaciones
 
 ## 📁 Estructura del Proyecto
 
 ```
 medellin_sae/
 ├── src/
-│   ├── domain/              # Capa de dominio (entidades, casos de uso)
-│   │   ├── entities/
+│   ├── domain/              # Capa de dominio
+│   │   ├── entities/        # Entidades de negocio
 │   │   ├── repositories/    # Interfaces abstractas
-│   │   └── use_cases/
-│   ├── application/         # Capa de aplicación (servicios, DTOs)
-│   │   ├── services/
-│   │   └── dto/
+│   │   └── use_cases/       # Casos de uso
+│   ├── application/         # Capa de aplicación
+│   │   ├── services/        # Servicios
+│   │   └── dto/            # Data Transfer Objects
 │   ├── infrastructure/      # Implementaciones concretas
-│   │   ├── email/          # IMAP
+│   │   ├── email/          # Repositorio IMAP
 │   │   ├── xml/            # Parser UBL 2.1
+│   │   ├── sftp/           # Cliente SFTP (Somex)
 │   │   ├── database/       # SQLite
 │   │   ├── github/         # Auto-update
 │   │   └── csv/            # Export CSV
 │   └── presentation/        # GUI PyQt6
-│       ├── widgets/
+│       ├── widgets/        # Tabs y widgets
+│       │   ├── client_tab.py
+│       │   ├── somex_tab.py
+│       │   ├── config_tab.py
+│       │   └── logs_tab.py
 │       └── main_window.py
 ├── config/
 │   ├── clients.json        # Configuración de clientes
@@ -114,7 +144,7 @@ medellin_sae/
 
 ## ⚙️ Configuración
 
-### Agregar nuevo cliente
+### Agregar Nuevo Cliente
 
 Editar `config/clients.json`:
 
@@ -126,7 +156,7 @@ Editar `config/clients.json`:
       "name": "Nombre del Cliente",
       "enabled": true,
       "email_config": {
-        "search_criteria": "(UNSEEN SUBJECT \"CRITERIO DE BÚSQUEDA\")",
+        "search_criteria": "(UNSEEN SUBJECT \"PALABRA CLAVE\")",
         "imap_server": "outlook.office365.com"
       },
       "xml_config": {
@@ -142,7 +172,7 @@ Editar `config/clients.json`:
 }
 ```
 
-### Configuración de la aplicación
+### Configuración de la Aplicación
 
 Editar `config/app_config.json`:
 
@@ -156,9 +186,15 @@ Editar `config/app_config.json`:
 }
 ```
 
+### Modo Automático
+
+1. Activar "Modo Automático" en el tab del cliente
+2. Configurar intervalo en minutos
+3. La aplicación procesará automáticamente
+
 ## 📊 Formato CSV de Salida
 
-El CSV generado incluye los siguientes campos (separador `;`, encoding UTF-8-BOM):
+El CSV generado incluye 22 campos (separador `;`, encoding UTF-8-BOM):
 
 - N° Factura
 - Nombre Producto
@@ -168,66 +204,81 @@ El CSV generado incluye los siguientes campos (separador `;`, encoding UTF-8-BOM
 - Precio Unitario (5 decimales, separador coma)
 - Fecha Factura (YYYY-MM-DD)
 - Fecha Pago (YYYY-MM-DD)
-- Nit Comprador
-- Nombre Comprador
-- Nit Vendedor
-- Nombre Vendedor
+- Nit Comprador / Nombre Comprador
+- Nit Vendedor / Nombre Vendedor
 - Principal V,C
 - Municipio
 - Iva
 - Descripción
-- Activa
-- Factura Activa
+- Activa / Factura Activa
 - Bodega
 - Incentivo
 - Cantidad Original
 - Moneda
 
+## 🔨 Build Ejecutable
+
+Para crear un ejecutable independiente (Windows):
+
+```bash
+python build.py
+```
+
+El ejecutable se generará en `dist/MedellinSAE.exe`
+
 ## 🔄 Auto-actualización
 
 La aplicación verifica automáticamente al inicio si hay actualizaciones disponibles en GitHub Releases.
 
-### Crear un release
+### Crear un Release
 
 1. Incrementar versión en `version.txt`:
    ```
-   v1.1.0
+   v1.2.0
    ```
 
 2. Hacer commit y push:
    ```bash
-   git commit -am "Release v1.1.0"
+   git commit -am "Release v1.2.0"
    git push
    ```
 
 3. Crear tag:
    ```bash
-   git tag v1.1.0
+   git tag v1.2.0
    git push --tags
    ```
 
-4. Crear release en GitHub con el ejecutable
+4. Crear release en GitHub con el ejecutable adjunto
 
-La aplicación detectará automáticamente la nueva versión y ofrecerá actualizar.
+La aplicación detectará automáticamente la nueva versión.
 
 ## 🐛 Troubleshooting
 
-### Error de conexión IMAP
+### Error de Conexión IMAP
 
-- Verificar credenciales en `.env`
-- Asegurar que la autenticación de aplicaciones esté habilitada en Outlook
-- Verificar que el servidor IMAP sea correcto (`outlook.office365.com`)
+- ✅ Verificar credenciales en `.env`
+- ✅ Habilitar autenticación de aplicaciones en Outlook
+- ✅ Verificar servidor IMAP: `outlook.office365.com`
+- ✅ Revisar logs en `logs/app.log`
 
-### Error al parsear XML
+### Error al Parsear XML
 
-- Verificar que el XML sea formato UBL 2.1
-- Revisar los namespaces en `src/infrastructure/xml/ubl_xml_parser.py`
+- ✅ Verificar formato UBL 2.1
+- ✅ Revisar namespaces en `src/infrastructure/xml/ubl_xml_parser.py`
+- ✅ Verificar que el ZIP contenga XML
 
-### No se detectan actualizaciones
+### Error SFTP Somex
 
-- Verificar `github_repo_url` en `config/app_config.json`
-- Verificar que el repositorio tenga releases públicos
-- Revisar los logs en `logs/app.log`
+- ✅ Verificar `SFTP_SOMEX_PASS` en `.env`
+- ✅ Comprobar conexión al servidor `170.239.154.159`
+- ✅ Verificar usuario: `usuario.bolsaagro`
+
+### No se Detectan Actualizaciones
+
+- ✅ Verificar `github_repo_url` en `config/app_config.json`
+- ✅ Verificar releases públicos en GitHub
+- ✅ Revisar logs en `logs/app.log`
 
 ## 📝 Logs
 
@@ -235,35 +286,61 @@ Los logs se guardan en:
 - `logs/app.log` - Log general de la aplicación
 - `logs/{client_id}_{date}.log` - Logs por cliente
 
-Niveles de log:
-- DEBUG: Información detallada
-- INFO: Información general
-- WARNING: Advertencias
-- ERROR: Errores
+Niveles de log (configurables en `config/app_config.json`):
+- **DEBUG**: Información detallada
+- **INFO**: Información general
+- **WARNING**: Advertencias
+- **ERROR**: Errores
 
 ## 🏗️ Arquitectura
 
 ### Clean Architecture
 
-El proyecto sigue los principios de Clean Architecture:
+El proyecto sigue los principios de Clean Architecture con 4 capas:
 
-1. **Domain Layer**: Entidades de negocio e interfaces
-2. **Application Layer**: Casos de uso y servicios
-3. **Infrastructure Layer**: Implementaciones técnicas
-4. **Presentation Layer**: GUI PyQt6
+1. **Domain Layer**: Entidades de negocio e interfaces (independiente de frameworks)
+2. **Application Layer**: Casos de uso y servicios de aplicación
+3. **Infrastructure Layer**: Implementaciones técnicas (IMAP, SFTP, SQLite, etc.)
+4. **Presentation Layer**: GUI PyQt6 con tabs y widgets
 
-### Flujo de procesamiento
+### Flujo de Procesamiento
 
 ```
-Email IMAP → Extract ZIP → Parse XML UBL → Save to SQLite → Export CSV
+Email IMAP → Extract ZIP → Parse XML UBL → Validate → Save to SQLite → Export CSV
 ```
+
+### Flujo SFTP Somex
+
+```
+Connect SFTP → List XML/ZIP files → Download → Process (opcional)
+```
+
+## 🔧 Tecnologías Utilizadas
+
+- **PyQt6**: GUI moderna y responsiva
+- **paramiko**: Cliente SFTP para Somex
+- **lxml**: Parsing XML UBL 2.1
+- **imaplib**: Conexión IMAP a email
+- **sqlite3**: Base de datos para tracking
+- **python-dotenv**: Gestión de variables de entorno
+- **requests**: HTTP para auto-actualización
+
+## 💡 Consejos de Uso
+
+1. **Primer Procesamiento**: Puede tomar tiempo si hay muchos correos sin procesar
+2. **Modo Automático**: Ideal para monitoreo continuo
+3. **Backup CSV**: Los archivos incluyen timestamp, no se sobreescriben
+4. **SQLite Deduplication**: Evita procesar el mismo correo dos veces
+5. **Logs Detallados**: Revisar logs para debugging y auditoría
+6. **Somex SFTP**: Descargar archivos antes de procesar manualmente
+7. **Variables de Entorno**: Nunca hacer commit del archivo `.env`
 
 ## 🤝 Contribuir
 
 1. Fork el proyecto
-2. Crear rama feature (`git checkout -b feature/nueva-caracteristica`)
-3. Commit cambios (`git commit -am 'Agregar nueva característica'`)
-4. Push a la rama (`git push origin feature/nueva-caracteristica`)
+2. Crear rama feature: `git checkout -b feature/nueva-funcionalidad`
+3. Commit cambios: `git commit -am 'feat: Agregar nueva funcionalidad'`
+4. Push a la rama: `git push origin feature/nueva-funcionalidad`
 5. Crear Pull Request
 
 ## 📄 Licencia
@@ -277,10 +354,10 @@ Este proyecto es privado y propietario.
 
 ## 🆘 Soporte
 
-Para reportar bugs o solicitar features, crear un issue en:
+Para reportar bugs o solicitar features:
 https://github.com/LuisVeraVR/medellin_sae/issues
 
-## 📚 Documentación Adicional
+## 📚 Referencias Técnicas
 
 ### UBL 2.1 Namespaces
 
@@ -291,22 +368,57 @@ NAMESPACES = {
 }
 ```
 
-### Criterios de búsqueda IMAP
-
-Ejemplos de criterios de búsqueda:
+### Criterios de Búsqueda IMAP
 
 ```python
 # Emails no leídos con asunto específico
 "(UNSEEN SUBJECT \"COMERCIALIZADORA TRIPLE A\")"
 
-# Emails de un remitente específico
+# Emails de remitente específico
 "(FROM \"sender@example.com\")"
 
-# Emails de los últimos 7 días
+# Emails recientes
 "(SINCE \"01-Jan-2024\")"
 ```
+
+### Ejemplo Uso Programático SFTP
+
+```python
+from src.infrastructure.sftp.somex_sftp_client import SomexSftpClient
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Context manager asegura cierre de conexión
+with SomexSftpClient(logger) as client:
+    success, msg = client.connect("/")
+
+    if success:
+        # Listar archivos XML
+        xml_files = client.list_xml_files()
+
+        for file in xml_files:
+            print(f"{file['name']} - {file['size_kb']} KB")
+
+        # Descargar primer archivo
+        if xml_files:
+            first_file = xml_files[0]['name']
+            client.download_file(f"/{first_file}", f"./downloads/{first_file}")
+```
+
+## ✅ Checklist Pre-Producción
+
+- [ ] Credenciales configuradas en `.env`
+- [ ] Conexión IMAP funcionando
+- [ ] Procesamiento manual exitoso
+- [ ] CSV generado correctamente
+- [ ] Somex SFTP conecta y lista archivos
+- [ ] Logs sin errores críticos
+- [ ] Modo automático configurado (si aplica)
+- [ ] Backup de código y datos
+- [ ] Ejecutable compilado (si aplica)
 
 ---
 
 **Versión**: 1.0.0
-**Última actualización**: 2024
+**Última actualización**: Diciembre 2024
