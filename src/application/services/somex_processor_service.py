@@ -194,6 +194,7 @@ class SomexProcessorService:
     def parse_invoice_xml(self, xml_content: bytes) -> Optional[Dict[str, Any]]:
         """
         Parse invoice XML and extract required data
+        Handles both AttachedDocument (with embedded Invoice) and direct Invoice
 
         Args:
             xml_content: XML content as bytes
@@ -208,78 +209,270 @@ class SomexProcessorService:
             # Log root tag
             self.logger.info(f"XML root tag: {tree.tag}")
 
-            # Extract invoice data
-            invoice_data = {
-                'invoice_number': self._get_text(tree, './/cbc:ID'),
-                'invoice_date': self._get_text(tree, './/cbc:IssueDate'),
-                'payment_date': self._get_text(tree, './/cbc:DueDate'),
-                'municipality': self._get_text(
-                    tree, './/cac:DeliveryLocation//cbc:CityName'
-                ),
-            }
+            # Check if this is an AttachedDocument with embedded Invoice
+            if 'AttachedDocument' in tree.tag:
+                self.logger.info("Detected AttachedDocument, extracting embedded Invoice")
+                tree = self._extract_embedded_invoice(tree)
 
-            self.logger.info(f"Invoice number: {invoice_data['invoice_number']}")
+                if tree is None:
+                    self.logger.error("Failed to extract embedded Invoice")
+                    return None
 
-            # Extract seller information
-            seller_party = tree.find(
-                './/cac:AccountingSupplierParty/cac:Party',
+                self.logger.info(f"Extracted embedded Invoice, new root: {tree.tag}")
+
+            # Extract invoice data using Somex-specific rules
+            invoice_data = self._parse_somex_invoice(tree)
+
+            if invoice_data:
+                self.logger.info(f"Invoice number: {invoice_data['invoice_number']}")
+
+            return invoice_data
+
+        except Exception as e:
+            self.logger.error(f"Error parsing XML: {e}", exc_info=True)
+            return None
+
+    def _extract_embedded_invoice(self, attached_doc_tree) -> Optional[any]:
+        """
+        Extract embedded Invoice XML from AttachedDocument CDATA
+
+        Args:
+            attached_doc_tree: Root element of AttachedDocument
+
+        Returns:
+            Root element of embedded Invoice or None
+        """
+        try:
+            # Find the CDATA content in Description
+            description_elem = attached_doc_tree.find(
+                './/cac:Attachment/cac:ExternalReference/cbc:Description',
                 self.NAMESPACES
             )
-            if seller_party is not None:
-                invoice_data['seller_nit'] = self._get_text(
-                    seller_party, './/cac:PartyTaxScheme/cbc:CompanyID'
-                )
-                invoice_data['seller_name'] = (
-                    self._get_text(seller_party, './/cac:PartyName/cbc:Name') or
-                    self._get_text(
-                        seller_party,
-                        './/cac:PartyLegalEntity/cbc:RegistrationName'
-                    )
-                )
 
-            # Extract buyer information
+            if description_elem is None or not description_elem.text:
+                self.logger.error("No Description element with CDATA found")
+                return None
+
+            # The CDATA contains the actual Invoice XML
+            embedded_xml = description_elem.text.strip()
+
+            self.logger.info(f"Embedded XML length: {len(embedded_xml)} characters")
+
+            # Parse the embedded XML
+            invoice_tree = etree.fromstring(embedded_xml.encode('utf-8'))
+
+            return invoice_tree
+
+        except Exception as e:
+            self.logger.error(f"Error extracting embedded invoice: {e}", exc_info=True)
+            return None
+
+    def _parse_somex_invoice(self, tree) -> Optional[Dict[str, Any]]:
+        """
+        Parse Invoice XML using Somex-specific rules
+
+        Args:
+            tree: Root element of Invoice
+
+        Returns:
+            Dictionary with invoice data
+        """
+        try:
+            # Extract invoice number from OrderReference (NOT from main cbc:ID)
+            invoice_number = self._get_text(tree, './/cac:OrderReference/cbc:ID')
+            if not invoice_number:
+                # Fallback to main ID if no OrderReference
+                invoice_number = self._get_text(tree, './/cbc:ID')
+
+            # Extract dates
+            invoice_date = self._get_text(tree, './/cbc:IssueDate')
+            payment_date = self._get_text(tree, './/cbc:PaymentDueDate')
+            if not payment_date:
+                payment_date = self._get_text(tree, './/cbc:DueDate')
+
+            # Extract buyer information (Cliente/Comprador)
             buyer_party = tree.find(
                 './/cac:AccountingCustomerParty/cac:Party',
                 self.NAMESPACES
             )
+
+            buyer_nit = ""
+            buyer_name = ""
+            municipality = ""
+
             if buyer_party is not None:
-                invoice_data['buyer_nit'] = self._get_text(
+                buyer_nit = self._get_text(
                     buyer_party, './/cac:PartyTaxScheme/cbc:CompanyID'
                 )
-                invoice_data['buyer_name'] = (
+                buyer_name = (
                     self._get_text(buyer_party, './/cac:PartyName/cbc:Name') or
                     self._get_text(
                         buyer_party,
                         './/cac:PartyLegalEntity/cbc:RegistrationName'
                     )
                 )
+                # Municipality from RegistrationAddress
+                municipality = self._get_text(
+                    buyer_party,
+                    './/cac:PartyTaxScheme/cac:RegistrationAddress/cbc:CityName'
+                )
 
-            # Extract line items
+            # Create base invoice data
+            invoice_data = {
+                'invoice_number': invoice_number,
+                'invoice_date': invoice_date,
+                'payment_date': payment_date,
+                'buyer_nit': buyer_nit,
+                'buyer_name': buyer_name,
+                'seller_nit': '800221724',  # Fijo para Somex
+                'seller_name': 'SOMEX S.A.S.',  # Fijo para Somex
+                'municipality': municipality,
+                'items': []
+            }
+
+            # Extract line items using Somex-specific parsing
             lines = tree.findall('.//cac:InvoiceLine', self.NAMESPACES)
             self.logger.info(f"Found {len(lines)} invoice lines")
 
-            invoice_data['items'] = []
-
             for idx, line in enumerate(lines, 1):
-                self.logger.debug(f"Parsing line item {idx}")
-                item = self._parse_line_item(line)
+                self.logger.debug(f"Parsing Somex line item {idx}")
+                item = self._parse_somex_line_item(line)
                 if item:
                     invoice_data['items'].append(item)
                     self.logger.debug(
                         f"  - Product: {item['product_name']}, "
                         f"Code: {item['product_code']}, "
-                        f"Qty: {item['quantity']}"
+                        f"Qty: {item['quantity']}, "
+                        f"Qty Adjusted: {item['quantity_adjusted']}"
                     )
 
             self.logger.info(
-                f"Parsed invoice {invoice_data['invoice_number']} "
+                f"Parsed Somex invoice {invoice_number} "
                 f"with {len(invoice_data['items'])} items"
             )
 
             return invoice_data
 
         except Exception as e:
-            self.logger.error(f"Error parsing XML: {e}", exc_info=True)
+            self.logger.error(f"Error parsing Somex invoice: {e}", exc_info=True)
+            return None
+
+    def _extract_kilos_from_name(self, product_name: str) -> Optional[Decimal]:
+        """
+        Extract kilos from product name
+        Example: "SAL SOMEX CEBA X 40 KILOS" -> 40
+
+        Args:
+            product_name: Product name string
+
+        Returns:
+            Kilos as Decimal or None if not found
+        """
+        import re
+
+        try:
+            # Look for pattern "X {number} KILO"
+            pattern = r'[Xx]\s*(\d+(?:\.\d+)?)\s*[Kk][Ii][Ll]'
+            match = re.search(pattern, product_name)
+
+            if match:
+                kilos = Decimal(match.group(1))
+                self.logger.debug(f"Extracted {kilos} kilos from '{product_name}'")
+                return kilos
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error extracting kilos from name: {e}")
+            return None
+
+    def _parse_somex_line_item(self, line_element) -> Optional[Dict[str, Any]]:
+        """
+        Parse a single invoice line item using Somex-specific rules
+
+        Args:
+            line_element: InvoiceLine XML element
+
+        Returns:
+            Dictionary with item data or None
+        """
+        try:
+            # Product name from Note
+            product_name = self._get_text(line_element, './/cbc:Note')
+            if not product_name:
+                # Fallback to Description
+                product_name = self._get_text(line_element, './/cac:Item/cbc:Description')
+
+            # Product code from StandardItemIdentification
+            product_code = self._get_text(
+                line_element,
+                './/cac:Item/cac:StandardItemIdentification/cbc:ID'
+            )
+            if not product_code:
+                # Fallback to SellersItemIdentification
+                product_code = self._get_text(
+                    line_element,
+                    './/cac:Item/cac:SellersItemIdentification/cbc:ID'
+                )
+
+            # Original quantity from XML
+            quantity_str = self._get_text(line_element, './/cbc:InvoicedQuantity')
+            quantity_original = Decimal(quantity_str) if quantity_str else Decimal('0')
+
+            # Extract kilos from product name
+            kilos = self._extract_kilos_from_name(product_name)
+
+            # Calculate adjusted quantity (quantity * kilos)
+            if kilos:
+                quantity_adjusted = quantity_original * kilos
+                self.logger.debug(
+                    f"Adjusted quantity: {quantity_original} * {kilos} = {quantity_adjusted}"
+                )
+            else:
+                quantity_adjusted = quantity_original
+                self.logger.warning(
+                    f"Could not extract kilos from '{product_name}', "
+                    f"using original quantity"
+                )
+
+            # Taxable amount (subtotal before tax)
+            taxable_amount_str = self._get_text(
+                line_element,
+                './/cac:TaxTotal/cac:TaxSubtotal/cbc:TaxableAmount'
+            )
+            taxable_amount = (
+                Decimal(taxable_amount_str) if taxable_amount_str else Decimal('0')
+            )
+
+            # Calculate unit price: taxable_amount / adjusted_quantity
+            if quantity_adjusted > 0:
+                unit_price = taxable_amount / quantity_adjusted
+            else:
+                unit_price = Decimal('0')
+
+            # Tax percentage
+            tax_percent_str = self._get_text(
+                line_element,
+                './/cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:Percent'
+            )
+            tax_percentage = (
+                Decimal(tax_percent_str) if tax_percent_str else Decimal('0')
+            )
+
+            return {
+                'product_name': product_name or "",
+                'product_code': product_code or "SPN-1",  # Default code
+                'quantity': quantity_adjusted,  # Adjusted quantity (with kilos)
+                'quantity_original': quantity_original,  # Original from XML
+                'quantity_adjusted': quantity_adjusted,  # For clarity
+                'unit_of_measure': 'KG',  # Always KG for Somex
+                'unit_price': unit_price,
+                'tax_percentage': tax_percentage,
+                'taxable_amount': taxable_amount,
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error parsing Somex line item: {e}", exc_info=True)
             return None
 
     def _parse_line_item(self, line_element) -> Optional[Dict[str, Any]]:
@@ -635,60 +828,75 @@ class SomexProcessorService:
         row_num = 2
         for invoice_data in all_invoices:
             for item in invoice_data.get('items', []):
+                # N° Factura
                 ws.cell(row=row_num, column=1).value = invoice_data.get(
                     'invoice_number', ''
                 )
+                # Nombre Producto
                 ws.cell(row=row_num, column=2).value = item.get('product_name', '')
-                ws.cell(row=row_num, column=3).value = item.get('product_code', '')
-                ws.cell(row=row_num, column=4).value = item.get('unit_of_measure', '')
+                # Codigo Subyacente
+                ws.cell(row=row_num, column=3).value = item.get('product_code', 'SPN-1')
+                # Unidad Medida en Kg,Un,Lt (siempre KG para Somex)
+                ws.cell(row=row_num, column=4).value = 'KG'
 
-                # Quantity with 5 decimals and comma separator
+                # Cantidad (5 decimales - separador coma) - AJUSTADA con kilos
                 ws.cell(row=row_num, column=5).value = self.format_decimal(
-                    item.get('quantity', Decimal('0'))
+                    item.get('quantity_adjusted', item.get('quantity', Decimal('0')))
                 )
 
-                # Unit price with 5 decimals and comma separator
+                # Precio Unitario (5 decimales - separador coma)
                 ws.cell(row=row_num, column=6).value = self.format_decimal(
                     item.get('unit_price', Decimal('0'))
                 )
 
+                # Fecha Factura Año-Mes-Dia
                 ws.cell(row=row_num, column=7).value = invoice_data.get(
                     'invoice_date', ''
                 )
+                # Fecha Pago Año-Mes-Dia
                 ws.cell(row=row_num, column=8).value = invoice_data.get(
                     'payment_date', ''
                 )
+                # Nit Comprador (Existente)
                 ws.cell(row=row_num, column=9).value = invoice_data.get(
                     'buyer_nit', ''
                 )
+                # Nombre Comprador
                 ws.cell(row=row_num, column=10).value = invoice_data.get(
                     'buyer_name', ''
                 )
-                ws.cell(row=row_num, column=11).value = invoice_data.get(
-                    'seller_nit', ''
-                )
-                ws.cell(row=row_num, column=12).value = invoice_data.get(
-                    'seller_name', ''
-                )
-                ws.cell(row=row_num, column=13).value = ""  # Principal V,C
+                # Nit Vendedor (Existente) - siempre 800221724 para Somex
+                ws.cell(row=row_num, column=11).value = '800221724'
+                # Nombre Vendedor - siempre SOMEX S.A.S.
+                ws.cell(row=row_num, column=12).value = 'SOMEX S.A.S.'
+                # Principal V,C - siempre "V"
+                ws.cell(row=row_num, column=13).value = "V"
+                # Municipio (Nombre Exacto de la Ciudad)
                 ws.cell(row=row_num, column=14).value = invoice_data.get(
                     'municipality', ''
                 )
+                # Iva (N°%)
                 ws.cell(row=row_num, column=15).value = str(
                     item.get('tax_percentage', '')
                 )
-                ws.cell(row=row_num, column=16).value = ""  # Descripción
-                ws.cell(row=row_num, column=17).value = ""  # Activa
-                ws.cell(row=row_num, column=18).value = ""  # Factura Activa
-                ws.cell(row=row_num, column=19).value = ""  # Bodega
-                ws.cell(row=row_num, column=20).value = ""  # Incentivo
+                # Descripción - vacía
+                ws.cell(row=row_num, column=16).value = ""
+                # Activa - 1
+                ws.cell(row=row_num, column=17).value = "1"
+                # Factura Activa - 1
+                ws.cell(row=row_num, column=18).value = "1"
+                # Bodega - vacía
+                ws.cell(row=row_num, column=19).value = ""
+                # Incentivo - vacía
+                ws.cell(row=row_num, column=20).value = ""
 
-                # Cantidad Original with 5 decimals and comma separator
+                # Cantidad Original (5 decimales - separador coma) - SIN ajustar
                 ws.cell(row=row_num, column=21).value = self.format_decimal(
-                    item.get('quantity', Decimal('0'))
+                    item.get('quantity_original', Decimal('0'))
                 )
 
-                ws.cell(row=row_num, column=22).value = ""  # Moneda
+                # Moneda (1,2,3) - siempre 1
+                ws.cell(row=row_num, column=22).value = "1"
 
                 row_num += 1
 
