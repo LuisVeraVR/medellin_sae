@@ -25,6 +25,7 @@ from src.application.services.config_service import ConfigService
 from src.presentation.widgets.client_tab import ClientTab
 from src.presentation.widgets.config_tab import ConfigTab
 from src.presentation.widgets.logs_tab import LogsTab
+from src.presentation.widgets.somex_tab import SomexTab
 
 
 class ProcessingWorker(QThread):
@@ -142,6 +143,10 @@ class MainWindow(QMainWindow):
                 client_tab.processing_requested.connect(self._on_processing_requested)
                 self.client_tabs[client.id] = client_tab
                 self.tabs.addTab(client_tab, client.name)
+
+        # Create Somex SFTP tab
+        self.somex_tab = SomexTab(self.logger)
+        self.tabs.addTab(self.somex_tab, "Somex")
 
         # Create config tab
         self.config_tab = ConfigTab(self.app_config)

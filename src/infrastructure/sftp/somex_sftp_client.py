@@ -1,0 +1,251 @@
+"""Somex SFTP Client - Infrastructure Layer"""
+import os
+import logging
+from typing import List, Dict, Optional, Tuple
+from datetime import datetime
+import paramiko
+from pathlib import Path
+
+
+class SomexSftpClient:
+    """Cliente SFTP para conectar y gestionar archivos del servidor Somex"""
+
+    def __init__(self, logger: Optional[logging.Logger] = None):
+        """
+        Inicializar cliente SFTP
+
+        Args:
+            logger: Logger opcional para registro de eventos
+        """
+        self.logger = logger or logging.getLogger(__name__)
+        self.ssh_client: Optional[paramiko.SSHClient] = None
+        self.sftp_client: Optional[paramiko.SFTPClient] = None
+        self.connected = False
+
+        # Configuración de conexión
+        self.host = "170.239.154.159"  # También puede ser "somexapp.com"
+        self.port = 22
+        self.username = "usuario.bolsaagro"
+        self.password = os.getenv('SFTP_SOMEX_PASS', '')
+
+    def connect(self, remote_dir: str = "/") -> Tuple[bool, str]:
+        """
+        Establecer conexión SFTP con el servidor
+
+        Args:
+            remote_dir: Directorio remoto al que navegar después de conectar
+
+        Returns:
+            Tupla (éxito, mensaje de estado)
+        """
+        try:
+            # Validar contraseña
+            if not self.password:
+                return False, "Error: Variable de entorno SFTP_SOMEX_PASS no configurada"
+
+            # Crear cliente SSH
+            self.ssh_client = paramiko.SSHClient()
+
+            # Configurar política de claves (aceptar claves desconocidas)
+            # En producción, considerar usar una política más estricta
+            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            self.logger.info(f"Conectando a {self.host}:{self.port} como {self.username}...")
+
+            # Conectar al servidor
+            self.ssh_client.connect(
+                hostname=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                timeout=10
+            )
+
+            # Abrir sesión SFTP
+            self.sftp_client = self.ssh_client.open_sftp()
+
+            # Cambiar al directorio remoto
+            try:
+                self.sftp_client.chdir(remote_dir)
+                current_dir = self.sftp_client.getcwd()
+                self.logger.info(f"Directorio actual: {current_dir}")
+            except IOError as e:
+                self.logger.warning(f"No se pudo cambiar a {remote_dir}: {e}")
+                # Continuar de todos modos
+
+            self.connected = True
+            return True, f"Conectado exitosamente a {self.host}"
+
+        except paramiko.AuthenticationException:
+            error_msg = "Error de autenticación: Usuario o contraseña incorrectos"
+            self.logger.error(error_msg)
+            return False, error_msg
+
+        except paramiko.SSHException as e:
+            error_msg = f"Error SSH: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+
+        except Exception as e:
+            error_msg = f"Error de conexión: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+
+    def list_files(self, remote_path: str = ".") -> List[Dict[str, any]]:
+        """
+        Listar todos los archivos en un directorio remoto
+
+        Args:
+            remote_path: Ruta del directorio remoto (por defecto el actual)
+
+        Returns:
+            Lista de diccionarios con información de archivos
+        """
+        if not self.connected or not self.sftp_client:
+            raise ConnectionError("No hay conexión SFTP activa")
+
+        try:
+            files_info = []
+
+            # Obtener lista de archivos
+            file_attrs = self.sftp_client.listdir_attr(remote_path)
+
+            for attr in file_attrs:
+                # Obtener información del archivo
+                file_info = {
+                    'name': attr.filename,
+                    'size': attr.st_size,  # Tamaño en bytes
+                    'size_kb': round(attr.st_size / 1024, 2),  # Tamaño en KB
+                    'modified': datetime.fromtimestamp(attr.st_mtime),
+                    'is_dir': self._is_directory(attr)
+                }
+                files_info.append(file_info)
+
+            self.logger.info(f"Listados {len(files_info)} archivos/directorios")
+            return files_info
+
+        except IOError as e:
+            self.logger.error(f"Error al listar archivos: {e}")
+            raise
+
+    def list_xml_files(self, remote_path: str = ".") -> List[Dict[str, any]]:
+        """
+        Listar solo archivos XML y ZIP en un directorio remoto
+
+        Args:
+            remote_path: Ruta del directorio remoto
+
+        Returns:
+            Lista de diccionarios con información de archivos XML/ZIP
+        """
+        all_files = self.list_files(remote_path)
+
+        # Filtrar solo archivos XML y ZIP
+        xml_files = [
+            f for f in all_files
+            if not f['is_dir'] and (
+                f['name'].lower().endswith('.xml') or
+                f['name'].lower().endswith('.zip')
+            )
+        ]
+
+        self.logger.info(f"Encontrados {len(xml_files)} archivos XML/ZIP")
+        return xml_files
+
+    def download_file(self, remote_path: str, local_path: str) -> Tuple[bool, str]:
+        """
+        Descargar un archivo del servidor SFTP
+
+        Args:
+            remote_path: Ruta del archivo remoto
+            local_path: Ruta donde guardar el archivo localmente
+
+        Returns:
+            Tupla (éxito, mensaje)
+        """
+        if not self.connected or not self.sftp_client:
+            return False, "No hay conexión SFTP activa"
+
+        try:
+            # Crear directorio local si no existe
+            local_dir = Path(local_path).parent
+            local_dir.mkdir(parents=True, exist_ok=True)
+
+            # Descargar archivo
+            self.sftp_client.get(remote_path, local_path)
+
+            success_msg = f"Archivo descargado: {remote_path} -> {local_path}"
+            self.logger.info(success_msg)
+            return True, success_msg
+
+        except IOError as e:
+            error_msg = f"Error al descargar archivo: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+        except Exception as e:
+            error_msg = f"Error inesperado: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+
+    def get_file_info(self, remote_path: str) -> Optional[Dict[str, any]]:
+        """
+        Obtener información de un archivo específico
+
+        Args:
+            remote_path: Ruta del archivo remoto
+
+        Returns:
+            Diccionario con información del archivo o None si no existe
+        """
+        if not self.connected or not self.sftp_client:
+            raise ConnectionError("No hay conexión SFTP activa")
+
+        try:
+            attr = self.sftp_client.stat(remote_path)
+
+            return {
+                'name': os.path.basename(remote_path),
+                'size': attr.st_size,
+                'size_kb': round(attr.st_size / 1024, 2),
+                'modified': datetime.fromtimestamp(attr.st_mtime),
+                'is_dir': self._is_directory(attr)
+            }
+        except IOError:
+            return None
+
+    def close(self) -> None:
+        """Cerrar la conexión SFTP de manera segura"""
+        try:
+            if self.sftp_client:
+                self.sftp_client.close()
+                self.logger.info("Cliente SFTP cerrado")
+
+            if self.ssh_client:
+                self.ssh_client.close()
+                self.logger.info("Cliente SSH cerrado")
+
+            self.connected = False
+
+        except Exception as e:
+            self.logger.error(f"Error al cerrar conexión: {e}")
+
+    def _is_directory(self, attr: paramiko.SFTPAttributes) -> bool:
+        """
+        Verificar si un atributo corresponde a un directorio
+
+        Args:
+            attr: Atributos del archivo SFTP
+
+        Returns:
+            True si es directorio, False en caso contrario
+        """
+        import stat
+        return stat.S_ISDIR(attr.st_mode)
+
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - asegurar cierre de conexión"""
+        self.close()
