@@ -13,5 +13,8 @@ packaging>=23.0
 # Environment Variables
 python-dotenv>=1.0.0
 
+# SFTP Client
+paramiko>=3.0.0
+
 # Build Tool
 pyinstaller>=6.10.0
