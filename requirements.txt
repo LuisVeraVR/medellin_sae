@@ -16,5 +16,8 @@ python-dotenv>=1.0.0
 # SFTP Client
 paramiko>=3.0.0
 
+# Excel Generation
+openpyxl>=3.1.0
+
 # Build Tool
 pyinstaller>=6.10.0
