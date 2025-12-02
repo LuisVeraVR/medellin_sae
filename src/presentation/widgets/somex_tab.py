@@ -175,8 +175,10 @@ class ProcessingWorker(QThread):
                     )
                     total_results['excel_file'] = excel_path
 
-                    # Marcar todos los XMLs como procesados
+                    # Marcar todos los XMLs como procesados y guardar items
+                    total_items_saved = 0
                     for invoice_data in all_invoices:
+                        # Marcar XML como procesado
                         self.repository.mark_xml_processed(
                             invoice_data['xml_content'],
                             invoice_data['xml_filename'],
@@ -185,8 +187,26 @@ class ProcessingWorker(QThread):
                             excel_path
                         )
 
+                        # Guardar items de la factura en la base de datos
+                        items = invoice_data.get('items', [])
+                        if items:
+                            items_saved = self.repository.save_invoice_items(
+                                invoice_number=invoice_data.get('invoice_number', ''),
+                                xml_filename=invoice_data['xml_filename'],
+                                zip_filename=invoice_data['zip_filename'],
+                                items=items
+                            )
+                            total_items_saved += items_saved
+                            self.logger.info(
+                                f"Saved {items_saved} items for invoice "
+                                f"{invoice_data.get('invoice_number', 'N/A')}"
+                            )
+
                     self.progress_update.emit(
                         f"Excel consolidado creado: {excel_path}"
+                    )
+                    self.progress_update.emit(
+                        f"✓ {total_items_saved} items guardados en la base de datos"
                     )
 
                 except Exception as e:
@@ -905,7 +925,8 @@ class SomexTab(QWidget):
                 f"Estadísticas de Procesamiento Somex\n"
                 f"{'='*40}\n\n"
                 f"XMLs procesados: {stats['xml_processed']}\n"
-                f"Items guardados: {stats['items_count']}\n"
+                f"Items maestros (Excel): {stats['items_count']}\n"
+                f"Items de facturas (XMLs): {stats['invoice_items_count']}\n"
                 f"Errores registrados: {stats['errors']}\n"
             )
 

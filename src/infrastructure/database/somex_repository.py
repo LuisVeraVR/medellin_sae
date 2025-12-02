@@ -63,6 +63,26 @@ class SomexRepository:
             )
         ''')
 
+        # Table for invoice items extracted from XMLs
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS somex_invoice_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_number TEXT NOT NULL,
+                xml_filename TEXT NOT NULL,
+                zip_filename TEXT,
+                product_name TEXT NOT NULL,
+                product_code TEXT,
+                quantity_original REAL,
+                quantity_adjusted REAL,
+                unit_of_measure TEXT,
+                unit_price REAL,
+                tax_percentage REAL,
+                taxable_amount REAL,
+                created_at TIMESTAMP NOT NULL,
+                FOREIGN KEY (xml_filename) REFERENCES somex_processed_xml(filename)
+            )
+        ''')
+
         # Create indexes for better performance
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_xml_hash
@@ -72,6 +92,16 @@ class SomexRepository:
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_item_codigo
             ON somex_items(codigo_item)
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice
+            ON somex_invoice_items(invoice_number)
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_invoice_items_product
+            ON somex_invoice_items(product_code)
         ''')
 
         conn.commit()
@@ -271,6 +301,118 @@ class SomexRepository:
         conn.commit()
         conn.close()
 
+    def save_invoice_items(
+        self,
+        invoice_number: str,
+        xml_filename: str,
+        zip_filename: Optional[str],
+        items: List[Dict[str, Any]]
+    ) -> int:
+        """
+        Save invoice items extracted from XML to database
+
+        Args:
+            invoice_number: Invoice number
+            xml_filename: XML filename
+            zip_filename: ZIP filename (optional)
+            items: List of item dictionaries
+
+        Returns:
+            Number of items saved
+        """
+        timestamp = datetime.now()
+        count = 0
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        for item in items:
+            try:
+                cursor.execute(
+                    '''INSERT INTO somex_invoice_items
+                       (invoice_number, xml_filename, zip_filename, product_name,
+                        product_code, quantity_original, quantity_adjusted,
+                        unit_of_measure, unit_price, tax_percentage, taxable_amount,
+                        created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (
+                        invoice_number,
+                        xml_filename,
+                        zip_filename,
+                        item.get('product_name', ''),
+                        item.get('product_code', ''),
+                        float(item.get('quantity_original', 0)),
+                        float(item.get('quantity_adjusted', 0)),
+                        item.get('unit_of_measure', ''),
+                        float(item.get('unit_price', 0)),
+                        float(item.get('tax_percentage', 0)),
+                        float(item.get('taxable_amount', 0)),
+                        timestamp
+                    )
+                )
+                count += 1
+            except Exception as e:
+                # Log error but continue with other items
+                print(f"Error saving invoice item: {e}")
+                continue
+
+        conn.commit()
+        conn.close()
+
+        return count
+
+    def get_invoice_items(self, invoice_number: str) -> List[Dict[str, Any]]:
+        """
+        Get all items for a specific invoice
+
+        Args:
+            invoice_number: Invoice number
+
+        Returns:
+            List of item dictionaries
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''SELECT * FROM somex_invoice_items
+               WHERE invoice_number = ?
+               ORDER BY id''',
+            (invoice_number,)
+        )
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    def get_all_invoice_items(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Get all invoice items
+
+        Args:
+            limit: Maximum number of items to retrieve
+
+        Returns:
+            List of item dictionaries
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''SELECT * FROM somex_invoice_items
+               ORDER BY created_at DESC
+               LIMIT ?''',
+            (limit,)
+        )
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
     def get_processing_stats(self) -> Dict[str, int]:
         """Get processing statistics"""
         conn = sqlite3.connect(self.db_path)
@@ -280,9 +422,13 @@ class SomexRepository:
         cursor.execute('SELECT COUNT(*) FROM somex_processed_xml')
         xml_count = cursor.fetchone()[0]
 
-        # Count items
+        # Count master items (imported from Excel)
         cursor.execute('SELECT COUNT(*) FROM somex_items')
         items_count = cursor.fetchone()[0]
+
+        # Count invoice items (extracted from XMLs)
+        cursor.execute('SELECT COUNT(*) FROM somex_invoice_items')
+        invoice_items_count = cursor.fetchone()[0]
 
         # Count errors
         cursor.execute(
@@ -296,6 +442,7 @@ class SomexRepository:
         return {
             'xml_processed': xml_count,
             'items_count': items_count,
+            'invoice_items_count': invoice_items_count,
             'errors': errors_count
         }
 
