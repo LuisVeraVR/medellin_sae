@@ -261,6 +261,21 @@ class SomexProcessorService:
             self.logger.info(f"Embedded XML length: {len(embedded_xml)} characters")
             self.logger.info(f"Embedded XML first 500 chars: {embedded_xml[:500]}")
 
+            # Validate that it's actually XML and not plain text
+            # Check if it starts with XML tag
+            if not embedded_xml.startswith('<?xml') and not embedded_xml.startswith('<'):
+                self.logger.error(
+                    f"CDATA content is not XML, it's plain text: {embedded_xml[:200]}"
+                )
+                return None
+
+            # Check if it contains "Invoice" tag
+            if 'Invoice' not in embedded_xml:
+                self.logger.error(
+                    f"CDATA content doesn't contain Invoice tag. Content: {embedded_xml[:200]}"
+                )
+                return None
+
             # Parse the embedded XML
             invoice_tree = etree.fromstring(embedded_xml.encode('utf-8'))
             self.logger.info(f"Successfully parsed embedded Invoice, root: {invoice_tree.tag}")
@@ -294,9 +309,9 @@ class SomexProcessorService:
             if not payment_date:
                 payment_date = self._get_text(tree, './/cbc:DueDate')
 
-            # Extract buyer information (Cliente/Comprador)
+            # Extract buyer information from ReceiverParty (NOT AccountingCustomerParty)
             buyer_party = tree.find(
-                './/cac:AccountingCustomerParty/cac:Party',
+                './/cac:ReceiverParty',
                 self.NAMESPACES
             )
 
@@ -305,21 +320,21 @@ class SomexProcessorService:
             municipality = ""
 
             if buyer_party is not None:
+                # NIT from ReceiverParty/PartyTaxScheme/CompanyID
                 buyer_nit = self._get_text(
                     buyer_party, './/cac:PartyTaxScheme/cbc:CompanyID'
                 )
-                buyer_name = (
-                    self._get_text(buyer_party, './/cac:PartyName/cbc:Name') or
-                    self._get_text(
-                        buyer_party,
-                        './/cac:PartyLegalEntity/cbc:RegistrationName'
-                    )
+                # Name from ReceiverParty/PartyTaxScheme/RegistrationName
+                buyer_name = self._get_text(
+                    buyer_party, './/cac:PartyTaxScheme/cbc:RegistrationName'
                 )
-                # Municipality from RegistrationAddress
+                # Municipality from ReceiverParty RegistrationAddress
                 municipality = self._get_text(
                     buyer_party,
                     './/cac:PartyTaxScheme/cac:RegistrationAddress/cbc:CityName'
                 )
+
+                self.logger.info(f"Buyer extracted: NIT={buyer_nit}, Name={buyer_name}, Muni={municipality}")
 
             # Create base invoice data
             invoice_data = {
