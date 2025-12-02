@@ -82,8 +82,11 @@ class ProcessingWorker(QThread):
                 'processed_xmls': 0,
                 'skipped_xmls': 0,
                 'failed_xmls': 0,
-                'excel_files': []
+                'excel_file': None
             }
+
+            # Acumular todas las facturas de todos los ZIPs
+            all_invoices = []
 
             for idx, file_info in enumerate(zip_files, 1):
                 zip_filename = file_info['name']
@@ -123,7 +126,9 @@ class ProcessingWorker(QThread):
                     total_results['processed_xmls'] += results['processed_xmls']
                     total_results['skipped_xmls'] += results['skipped_xmls']
                     total_results['failed_xmls'] += results['failed_xmls']
-                    total_results['excel_files'].extend(results['excel_files'])
+
+                    # Acumular facturas
+                    all_invoices.extend(results['invoices'])
 
                     # Limpiar archivo temporal
                     Path(tmp_path).unlink(missing_ok=True)
@@ -138,6 +143,38 @@ class ProcessingWorker(QThread):
                     self.logger.error(f"Error procesando {zip_filename}: {e}")
                     self.progress_update.emit(
                         f"Error en {zip_filename}: {str(e)}"
+                    )
+
+            # Generar Excel consolidado con todas las facturas
+            if all_invoices:
+                self.progress_update.emit(
+                    f"\nGenerando Excel consolidado con {len(all_invoices)} facturas..."
+                )
+
+                try:
+                    excel_path = self.processor.create_consolidated_excel(
+                        all_invoices
+                    )
+                    total_results['excel_file'] = excel_path
+
+                    # Marcar todos los XMLs como procesados
+                    for invoice_data in all_invoices:
+                        self.repository.mark_xml_processed(
+                            invoice_data['xml_content'],
+                            invoice_data['xml_filename'],
+                            invoice_data['zip_filename'],
+                            invoice_data.get('invoice_number'),
+                            excel_path
+                        )
+
+                    self.progress_update.emit(
+                        f"Excel consolidado creado: {excel_path}"
+                    )
+
+                except Exception as e:
+                    self.logger.error(f"Error generando Excel consolidado: {e}")
+                    self.progress_update.emit(
+                        f"Error generando Excel: {str(e)}"
                     )
 
             self.processing_complete.emit(total_results)
@@ -353,7 +390,7 @@ class SomexTab(QWidget):
             "<b>Procesar automáticamente todos los ZIPs en /DocumentosPendientes:</b><br>"
             "- Descarga ZIPs desde el servidor SFTP<br>"
             "- Extrae XMLs de cada ZIP<br>"
-            "- Genera archivos Excel con la plantilla Somex<br>"
+            "- <b>Genera UN SOLO archivo Excel consolidado</b> con todas las facturas<br>"
             "- Evita reprocesar XMLs ya procesados"
         )
         desc_label.setWordWrap(True)
@@ -620,23 +657,35 @@ class SomexTab(QWidget):
             f"XMLs procesados (nuevos): {results['processed_xmls']}\n"
             f"XMLs omitidos (ya procesados): {results['skipped_xmls']}\n"
             f"XMLs con errores: {results['failed_xmls']}\n"
-            f"Archivos Excel generados: {len(results['excel_files'])}\n"
         )
 
-        if results['excel_files']:
-            summary += f"\nArchivos generados en: output/somex/\n"
+        if results.get('excel_file'):
+            summary += f"\nArchivo Excel consolidado:\n{results['excel_file']}\n"
+        else:
+            summary += "\nNo se generó Excel (no hay facturas nuevas)\n"
 
         self.progress_text.append(summary)
 
         # Mostrar diálogo de confirmación
-        QMessageBox.information(
-            self,
-            "Procesamiento Completado",
-            f"Procesamiento finalizado exitosamente.\n\n"
-            f"XMLs procesados: {results['processed_xmls']}\n"
-            f"Archivos Excel generados: {len(results['excel_files'])}\n\n"
-            f"Los archivos se encuentran en: output/somex/"
-        )
+        if results.get('excel_file'):
+            QMessageBox.information(
+                self,
+                "Procesamiento Completado",
+                f"Procesamiento finalizado exitosamente.\n\n"
+                f"XMLs procesados: {results['processed_xmls']}\n"
+                f"Archivo Excel consolidado generado:\n"
+                f"{results['excel_file']}\n\n"
+                f"El archivo contiene todas las facturas procesadas."
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Procesamiento Completado",
+                f"Procesamiento finalizado.\n\n"
+                f"XMLs procesados (nuevos): {results['processed_xmls']}\n"
+                f"XMLs omitidos (ya procesados): {results['skipped_xmls']}\n\n"
+                f"No se generó Excel porque no hay facturas nuevas."
+            )
 
     def _on_processing_error(self, error_message: str) -> None:
         """Manejar errores durante el procesamiento"""

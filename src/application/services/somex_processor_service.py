@@ -395,14 +395,14 @@ class SomexProcessorService:
         zip_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Process a ZIP file: extract XMLs, parse them, and generate Excel
+        Process a ZIP file: extract XMLs and parse them
 
         Args:
             zip_path: Path to ZIP file
             zip_filename: Optional ZIP filename for logging
 
         Returns:
-            Dictionary with processing results
+            Dictionary with processing results including parsed invoices
         """
         if not zip_filename:
             zip_filename = Path(zip_path).name
@@ -413,7 +413,7 @@ class SomexProcessorService:
             'processed_xmls': 0,
             'skipped_xmls': 0,
             'failed_xmls': 0,
-            'excel_files': []
+            'invoices': []  # List of parsed invoice data
         }
 
         try:
@@ -436,31 +436,167 @@ class SomexProcessorService:
                     results['failed_xmls'] += 1
                     continue
 
-                # Create Excel
-                excel_filename = f"{Path(xml_filename).stem}.xlsx"
-                excel_path = self.create_excel_template(
-                    invoice_data,
-                    excel_filename
-                )
-                results['excel_files'].append(excel_path)
+                # Add metadata to invoice data
+                invoice_data['xml_filename'] = xml_filename
+                invoice_data['xml_content'] = xml_content
+                invoice_data['zip_filename'] = zip_filename
 
-                # Mark as processed
-                self.repository.mark_xml_processed(
-                    xml_content,
-                    xml_filename,
-                    zip_filename,
-                    invoice_data.get('invoice_number'),
-                    excel_path
-                )
-
+                results['invoices'].append(invoice_data)
                 results['processed_xmls'] += 1
 
-                self.logger.info(
-                    f"Processed XML {xml_filename} -> {excel_path}"
-                )
+                self.logger.info(f"Parsed XML {xml_filename}")
 
         except Exception as e:
             self.logger.error(f"Error processing ZIP file {zip_filename}: {e}")
             raise
 
         return results
+
+    def create_consolidated_excel(
+        self,
+        all_invoices: List[Dict[str, Any]],
+        output_filename: Optional[str] = None
+    ) -> str:
+        """
+        Create a single Excel file with all invoices from multiple ZIPs
+
+        Args:
+            all_invoices: List of invoice data dictionaries
+            output_filename: Optional output filename
+
+        Returns:
+            Path to created Excel file
+        """
+        if not output_filename:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_filename = f"somex_facturas_consolidadas_{timestamp}.xlsx"
+
+        output_path = self.output_dir / output_filename
+
+        # Create workbook
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Facturas Somex"
+
+        # Define headers according to specification
+        headers = [
+            "N° Factura",
+            "Nombre Producto",
+            "Codigo Subyacente",
+            "Unidad Medida en Kg,Un,Lt",
+            "Cantidad (5 decimales - separdor coma)",
+            "Precio Unitario (5 decimales - separdor coma)",
+            "Fecha Factura Año-Mes-Dia",
+            "Fecha Pago Año-Mes-Dia",
+            "Nit Comprador (Existente)",
+            "Nombre Comprador",
+            "Nit Vendedor (Existente)",
+            "Nombre Vendedor",
+            "Principal V,C",
+            "Municipio (Nombre Exacto de la Ciudad)",
+            "Iva (N°%)",
+            "Descripción",
+            "Activa",
+            "Factura Activa",
+            "Bodega",
+            "Incentivo",
+            "Cantidad Original (5 decimales - separdor coma)",
+            "Moneda (1,2,3)"
+        ]
+
+        # Write headers with formatting
+        header_fill = PatternFill(
+            start_color="366092",
+            end_color="366092",
+            fill_type="solid"
+        )
+        header_font = Font(bold=True, color="FFFFFF")
+
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+
+        # Write data rows for all invoices
+        row_num = 2
+        for invoice_data in all_invoices:
+            for item in invoice_data.get('items', []):
+                ws.cell(row=row_num, column=1).value = invoice_data.get(
+                    'invoice_number', ''
+                )
+                ws.cell(row=row_num, column=2).value = item.get('product_name', '')
+                ws.cell(row=row_num, column=3).value = item.get('product_code', '')
+                ws.cell(row=row_num, column=4).value = item.get('unit_of_measure', '')
+
+                # Quantity with 5 decimals and comma separator
+                ws.cell(row=row_num, column=5).value = self.format_decimal(
+                    item.get('quantity', Decimal('0'))
+                )
+
+                # Unit price with 5 decimals and comma separator
+                ws.cell(row=row_num, column=6).value = self.format_decimal(
+                    item.get('unit_price', Decimal('0'))
+                )
+
+                ws.cell(row=row_num, column=7).value = invoice_data.get(
+                    'invoice_date', ''
+                )
+                ws.cell(row=row_num, column=8).value = invoice_data.get(
+                    'payment_date', ''
+                )
+                ws.cell(row=row_num, column=9).value = invoice_data.get(
+                    'buyer_nit', ''
+                )
+                ws.cell(row=row_num, column=10).value = invoice_data.get(
+                    'buyer_name', ''
+                )
+                ws.cell(row=row_num, column=11).value = invoice_data.get(
+                    'seller_nit', ''
+                )
+                ws.cell(row=row_num, column=12).value = invoice_data.get(
+                    'seller_name', ''
+                )
+                ws.cell(row=row_num, column=13).value = ""  # Principal V,C
+                ws.cell(row=row_num, column=14).value = invoice_data.get(
+                    'municipality', ''
+                )
+                ws.cell(row=row_num, column=15).value = str(
+                    item.get('tax_percentage', '')
+                )
+                ws.cell(row=row_num, column=16).value = ""  # Descripción
+                ws.cell(row=row_num, column=17).value = ""  # Activa
+                ws.cell(row=row_num, column=18).value = ""  # Factura Activa
+                ws.cell(row=row_num, column=19).value = ""  # Bodega
+                ws.cell(row=row_num, column=20).value = ""  # Incentivo
+
+                # Cantidad Original with 5 decimals and comma separator
+                ws.cell(row=row_num, column=21).value = self.format_decimal(
+                    item.get('quantity', Decimal('0'))
+                )
+
+                ws.cell(row=row_num, column=22).value = ""  # Moneda
+
+                row_num += 1
+
+        # Auto-adjust column widths
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+
+        # Save workbook
+        wb.save(output_path)
+        self.logger.info(
+            f"Consolidated Excel created: {output_path} with {row_num - 2} rows"
+        )
+
+        return str(output_path)
