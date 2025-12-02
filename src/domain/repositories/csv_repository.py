@@ -1,8 +1,8 @@
 """CSV Repository Interface - Domain Layer"""
 from abc import ABC, abstractmethod
 from typing import List
-from src.entities.invoice import Invoice
-from src.entities.client import Client
+from src.domain.entities.invoice import Invoice
+from src.domain.entities.client import Client
 
 
 class CSVRepository(ABC):

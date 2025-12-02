@@ -1,7 +1,7 @@
 """XML Parser Repository Interface - Domain Layer"""
 from abc import ABC, abstractmethod
 from typing import Optional
-from src.entities.invoice import Invoice
+from src.domain.entities.invoice import Invoice
 
 
 class XMLParserRepository(ABC):

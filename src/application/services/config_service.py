@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 from src.domain.entities.client import Client
-from src.dto.config_dto import AppConfigDTO, ClientConfigDTO
+from src.application.dto.config_dto import AppConfigDTO, ClientConfigDTO
 
 
 class ConfigService:
