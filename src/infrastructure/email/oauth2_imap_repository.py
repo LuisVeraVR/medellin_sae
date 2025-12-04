@@ -11,6 +11,7 @@ OAuth 2.0 Device Code Flow:
 4. Once user authenticates, app receives access token
 5. App uses token to authenticate with IMAP via XOAUTH2
 """
+import os
 import imaplib
 import email
 import json
@@ -37,18 +38,12 @@ class OAuth2IMAPRepository(EmailRepository):
     OAuth 2.0 access tokens for IMAP authentication. Tokens are cached locally
     to avoid repeated authentication prompts.
 
-    Configuration:
-        - CLIENT_ID: Microsoft's public client ID for device flow
-        - AUTHORITY: Azure AD authority URL (supports common endpoint)
+    Configuration (via environment variables):
+        - AZURE_CLIENT_ID: Your Azure AD application (client) ID
+        - AZURE_TENANT_ID: Your Azure AD tenant ID or "common" for multi-tenant
         - SCOPES: IMAP.AccessAsUser.All scope for Office 365
         - TOKEN_CACHE: Local file path for token persistence
     """
-
-    # Microsoft public client ID for device flow (officially documented)
-    CLIENT_ID = "d3590ed6-52b3-4102-aeff-aad2292ab01c"
-
-    # Azure AD authority (common endpoint supports all account types)
-    AUTHORITY = "https://login.microsoftonline.com/common"
 
     # Required scope for IMAP access in Office 365
     SCOPES = ["https://outlook.office365.com/IMAP.AccessAsUser.All"]
@@ -61,6 +56,27 @@ class OAuth2IMAPRepository(EmailRepository):
         self.imap: Optional[imaplib.IMAP4_SSL] = None
         self.logger = logging.getLogger(__name__)
 
+        # Load Azure AD credentials from environment
+        self.client_id = os.getenv('AZURE_CLIENT_ID')
+        tenant_id = os.getenv('AZURE_TENANT_ID', 'common')
+
+        if not self.client_id:
+            raise ValueError(
+                "AZURE_CLIENT_ID no está configurado en el archivo .env\n\n"
+                "Por favor:\n"
+                "1. Registra una aplicación en Azure AD Portal (https://portal.azure.com)\n"
+                "2. Copia el Application (client) ID\n"
+                "3. Agrégalo al archivo .env:\n"
+                "   AZURE_CLIENT_ID=tu-client-id-aqui\n\n"
+                "Consulta AZURE_APP_REGISTRATION.md para instrucciones detalladas."
+            )
+
+        # Build authority URL
+        self.authority = f"https://login.microsoftonline.com/{tenant_id}"
+
+        self.logger.info(f"Initializing OAuth 2.0 with CLIENT_ID: {self.client_id[:8]}...")
+        self.logger.info(f"Authority: {self.authority}")
+
         # Ensure token cache directory exists
         cache_path = Path(self.TOKEN_CACHE_FILE)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,8 +84,8 @@ class OAuth2IMAPRepository(EmailRepository):
         # Initialize MSAL application with token cache
         self.token_cache = self._load_token_cache()
         self.app = msal.PublicClientApplication(
-            client_id=self.CLIENT_ID,
-            authority=self.AUTHORITY,
+            client_id=self.client_id,
+            authority=self.authority,
             token_cache=self.token_cache
         )
 

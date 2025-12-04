@@ -70,6 +70,7 @@ def main():
     # Load environment variables
     load_dotenv()
     email = os.getenv('CORREAGRO_EMAIL')
+    azure_client_id = os.getenv('AZURE_CLIENT_ID')
 
     if not email:
         logger.error("CORREAGRO_EMAIL not found in .env file")
@@ -80,7 +81,26 @@ def main():
         print("3. Ejecuta este script nuevamente\n")
         return 1
 
+    if not azure_client_id or azure_client_id == 'PENDING_REGISTRATION':
+        logger.error("AZURE_CLIENT_ID not configured in .env file")
+        print("\n✗ ERROR: AZURE_CLIENT_ID no está configurado en el archivo .env")
+        print("\n" + "="*70)
+        print("  CONFIGURACIÓN REQUERIDA: Registro de Aplicación en Azure AD")
+        print("="*70 + "\n")
+        print("OAuth 2.0 requiere que registres tu propia aplicación en Azure AD.")
+        print("\nPasos rápidos:")
+        print("1. Abre https://portal.azure.com")
+        print("2. Ve a Azure Active Directory > App registrations")
+        print("3. Crea una nueva aplicación")
+        print("4. Copia el Application (client) ID")
+        print("5. Agrégalo al archivo .env:")
+        print("   AZURE_CLIENT_ID=tu-client-id-aqui")
+        print("\n📖 Para instrucciones detalladas paso a paso:")
+        print("   Consulta el archivo: AZURE_APP_REGISTRATION.md\n")
+        return 1
+
     print(f"Email configurado: {email}")
+    print(f"Azure Client ID: {azure_client_id[:8]}...{azure_client_id[-4:]}")
     print(f"Servidor IMAP: outlook.office365.com:993")
     print(f"Método de autenticación: OAuth 2.0 Device Code Flow\n")
 
