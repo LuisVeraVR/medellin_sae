@@ -13,6 +13,9 @@ packaging>=23.0
 # Environment Variables
 python-dotenv>=1.0.0
 
+# OAuth 2.0 Authentication (for Office 365 IMAP)
+msal>=1.24.0
+
 # SFTP Client
 paramiko>=3.0.0
 
