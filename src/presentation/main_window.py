@@ -234,10 +234,23 @@ class MainWindow(QMainWindow):
         db_path = Path("data") / f"{client.id}_processed.db"
         db_repo = SQLiteRepository(str(db_path))
 
+        # Create XML parser with inventory for Pulgarin
+        xml_parser_repo = self.xml_parser_repo
+        if client.id.lower() == "pulgarin":
+            client_tab = self.client_tabs.get(client_id)
+            if client_tab:
+                inventory_service = client_tab.get_inventory_service()
+                if inventory_service:
+                    xml_parser_repo = UBLXMLParser(inventory_service=inventory_service)
+                    self.logger.info(f"Using XML parser with inventory for Pulgarin ({inventory_service.get_stats()['total_items']} items)")
+                else:
+                    xml_parser_repo = UBLXMLParser()
+                    self.logger.warning("Pulgarin inventory not loaded, using parser without inventory")
+
         # Create use case
         use_case = ProcessInvoicesUseCase(
             email_repo=email_repo,
-            xml_parser_repo=self.xml_parser_repo,
+            xml_parser_repo=xml_parser_repo,
             database_repo=db_repo,
             csv_repo=self.csv_repo,
             logger=self.logger
