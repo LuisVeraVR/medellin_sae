@@ -111,7 +111,12 @@ class UBLXMLParser(XMLParserRepository):
             )
 
             # Extract line items
-            lines = tree.findall('.//cac:InvoiceLine', self.NAMESPACES)
+            # Pulgarin invoices have InvoiceLines inside cac:Attachment
+            lines = tree.findall('.//cac:Attachment//cac:InvoiceLine', self.NAMESPACES)
+
+            # Fallback: try standard location if not found in Attachment
+            if not lines:
+                lines = tree.findall('.//cac:InvoiceLine', self.NAMESPACES)
 
             for line in lines:
                 item = self._parse_line_item(line)
