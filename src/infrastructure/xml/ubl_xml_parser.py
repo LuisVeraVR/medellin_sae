@@ -39,6 +39,21 @@ class UBLXMLParser(XMLParserRepository):
         try:
             tree = etree.fromstring(xml_content)
 
+            # Check if this is an AttachedDocument wrapper
+            # If so, extract the Invoice from the CDATA inside cac:Attachment
+            root_tag = tree.tag
+            if 'AttachedDocument' in root_tag:
+                # Extract Invoice from CDATA in cac:Attachment/cac:ExternalReference/cbc:Description
+                cdata_element = tree.find('.//cac:Attachment/cac:ExternalReference/cbc:Description', self.NAMESPACES)
+                if cdata_element is not None and cdata_element.text:
+                    # Parse the CDATA content as a new XML
+                    invoice_xml = cdata_element.text.strip()
+                    # Remove CDATA markers if present
+                    if invoice_xml.startswith('<![CDATA['):
+                        invoice_xml = invoice_xml[9:-3]  # Remove <![CDATA[ and ]]>
+                    # Parse the Invoice XML
+                    tree = etree.fromstring(invoice_xml.encode('utf-8'))
+
             # Extract invoice header information
             invoice_number = self._get_text(tree, './/cbc:ID')
             invoice_date = self._get_date(tree, './/cbc:IssueDate')
