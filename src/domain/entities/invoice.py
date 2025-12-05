@@ -18,12 +18,13 @@ class Invoice:
     buyer_name: str
     municipality: str
     items: List[InvoiceItem] = field(default_factory=list)
+    description: Optional[str] = None  # Nota de la factura
     currency: str = "1"  # Default currency code
-    active: Optional[str] = None
-    invoice_active: Optional[str] = None
+    active: str = "1"  # Siempre 1
+    invoice_active: str = "1"  # Siempre 1
     warehouse: Optional[str] = None
     incentive: Optional[str] = None
-    principal_vc: Optional[str] = None
+    principal_vc: str = "V"  # V = Vendedor (dueño de la factura)
 
     def add_item(self, item: InvoiceItem) -> None:
         """Add an item to the invoice"""

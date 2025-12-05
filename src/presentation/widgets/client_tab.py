@@ -14,7 +14,7 @@ from src.domain.entities.processing_result import ProcessingResult
 class ClientTab(QWidget):
     """Tab widget for individual client"""
 
-    processing_requested = pyqtSignal(str)  # Signal with client_id
+    processing_requested = pyqtSignal(str, bool)  # Signal with client_id, allow_reprocess
 
     def __init__(self, client: Client, logger: logging.Logger, parent=None):
         super().__init__(parent)
@@ -39,6 +39,12 @@ class ClientTab(QWidget):
         self.process_btn = QPushButton("Procesar Ahora")
         self.process_btn.clicked.connect(self._on_process_now)
         controls_layout.addWidget(self.process_btn)
+
+        self.reprocess_checkbox = QCheckBox("Permitir reprocesar correos ya procesados")
+        self.reprocess_checkbox.setToolTip(
+            "Si está marcado, procesará todos los correos sin importar si ya fueron procesados antes"
+        )
+        controls_layout.addWidget(self.reprocess_checkbox)
 
         self.open_output_btn = QPushButton("Abrir Carpeta Output")
         self.open_output_btn.clicked.connect(self._on_open_output)
@@ -104,9 +110,13 @@ class ClientTab(QWidget):
 
     def _on_process_now(self) -> None:
         """Handle process now button click"""
-        self.log_message("Iniciando procesamiento manual...")
+        allow_reprocess = self.reprocess_checkbox.isChecked()
+        if allow_reprocess:
+            self.log_message("Iniciando procesamiento manual (REPROCESANDO todos los correos)...")
+        else:
+            self.log_message("Iniciando procesamiento manual...")
         self.process_btn.setEnabled(False)
-        self.processing_requested.emit(self.client.id)
+        self.processing_requested.emit(self.client.id, allow_reprocess)
 
     def _on_auto_mode_changed(self, state: int) -> None:
         """Handle auto mode checkbox change"""
@@ -121,8 +131,9 @@ class ClientTab(QWidget):
 
     def _on_auto_process(self) -> None:
         """Handle automatic processing trigger"""
+        allow_reprocess = self.reprocess_checkbox.isChecked()
         self.log_message("Procesamiento automático iniciado...")
-        self.processing_requested.emit(self.client.id)
+        self.processing_requested.emit(self.client.id, allow_reprocess)
 
     def _on_open_output(self) -> None:
         """Open output folder in file explorer"""

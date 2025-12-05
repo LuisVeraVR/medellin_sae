@@ -42,7 +42,8 @@ class ProcessingWorker(QThread):
         password: str,
         output_dir: str,
         use_case: ProcessInvoicesUseCase,
-        logger: logging.Logger
+        logger: logging.Logger,
+        allow_reprocess: bool = False
     ):
         super().__init__()
         self.client = client
@@ -51,6 +52,7 @@ class ProcessingWorker(QThread):
         self.output_dir = output_dir
         self.use_case = use_case
         self.logger = logger
+        self.allow_reprocess = allow_reprocess
 
     def run(self) -> None:
         """Execute processing in background"""
@@ -61,7 +63,8 @@ class ProcessingWorker(QThread):
                 self.client,
                 self.email,
                 self.password,
-                self.output_dir
+                self.output_dir,
+                allow_reprocess=self.allow_reprocess
             )
 
             self.finished.emit(result)
@@ -198,7 +201,7 @@ class MainWindow(QMainWindow):
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             self.show()
 
-    def _on_processing_requested(self, client_id: str) -> None:
+    def _on_processing_requested(self, client_id: str, allow_reprocess: bool = False) -> None:
         """Handle processing request from client tab"""
         # Get email credentials
         email, password = self.config_tab.get_email_credentials()
@@ -250,7 +253,8 @@ class MainWindow(QMainWindow):
             password=password,
             output_dir=str(output_dir),
             use_case=use_case,
-            logger=self.logger
+            logger=self.logger,
+            allow_reprocess=allow_reprocess
         )
 
         worker.finished.connect(lambda result: self._on_processing_finished(client_id, result))

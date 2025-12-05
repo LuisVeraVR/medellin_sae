@@ -10,6 +10,7 @@ class InvoiceItem:
 
     product_name: str
     product_code: str
+    subyacente_code: str  # Código subyacente (ej: SPN-1)
     quantity: Decimal
     unit_of_measure: str
     unit_price: Decimal

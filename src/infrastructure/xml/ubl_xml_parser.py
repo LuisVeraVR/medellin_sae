@@ -31,6 +31,20 @@ class UBLXMLParser(XMLParserRepository):
             payment_date = self._get_date(tree, './/cbc:DueDate')
             municipality = self._get_text(tree, './/cac:DeliveryLocation//cbc:CityName')
 
+            # Extract invoice notes/description
+            description = self._get_text(tree, './/cbc:Note')
+
+            # Extract currency code and convert to numeric
+            currency_code = self._get_text(tree, './/cbc:DocumentCurrencyCode')
+            if currency_code == 'COP':
+                currency = "1"
+            elif currency_code == 'USD':
+                currency = "2"
+            elif currency_code == 'EUR':
+                currency = "3"
+            else:
+                currency = "1"  # Default to COP
+
             # Extract seller information
             seller_party = tree.find('.//cac:AccountingSupplierParty/cac:Party', self.NAMESPACES)
             seller_nit = self._get_text(seller_party, './/cac:PartyTaxScheme/cbc:CompanyID') if seller_party is not None else ""
@@ -56,7 +70,12 @@ class UBLXMLParser(XMLParserRepository):
                 seller_name=seller_name,
                 buyer_nit=buyer_nit,
                 buyer_name=buyer_name,
-                municipality=municipality or ""
+                municipality=municipality or "",
+                description=description or None,
+                currency=currency,
+                active="1",  # Siempre 1
+                invoice_active="1",  # Siempre 1
+                principal_vc="V"  # V = Vendedor (dueño de la factura)
             )
 
             # Extract line items
@@ -101,6 +120,7 @@ class UBLXMLParser(XMLParserRepository):
             return InvoiceItem(
                 product_name=product_name or "",
                 product_code=product_code or "",
+                subyacente_code="SPN-1",  # Código subyacente hardcoded
                 quantity=quantity,
                 unit_of_measure=unit_of_measure,
                 unit_price=unit_price,
