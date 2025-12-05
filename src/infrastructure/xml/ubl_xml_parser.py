@@ -20,6 +20,20 @@ class UBLXMLParser(XMLParserRepository):
         'inv': 'urn:oasis:names:specification:ubl:schema:xsd:Invoice-2'
     }
 
+    # Mapeo de códigos de unidad UBL a nombres legibles
+    # Basado en UN/ECE Recommendation 20
+    UNIT_CODE_MAP = {
+        '94': 'KG',   # Kilogramo
+        'KGM': 'KG',  # Kilogramo
+        'GRM': 'GR',  # Gramo
+        'LTR': 'LT',  # Litro
+        'MTR': 'MT',  # Metro
+        'H87': 'UN',  # Unidad
+        'EA': 'UN',   # Unidad (Each)
+        'NIU': 'UN',  # Número de unidades
+        'C62': 'UN',  # Unidad
+    }
+
     def parse_invoice(self, xml_content: bytes) -> Optional[Invoice]:
         """Parse UBL 2.1 XML and return Invoice entity"""
         try:
@@ -28,7 +42,12 @@ class UBLXMLParser(XMLParserRepository):
             # Extract invoice header information
             invoice_number = self._get_text(tree, './/cbc:ID')
             invoice_date = self._get_date(tree, './/cbc:IssueDate')
-            payment_date = self._get_date(tree, './/cbc:DueDate')
+
+            # Try PaymentDueDate first, then DueDate as fallback
+            payment_date = self._get_date(tree, './/cbc:PaymentDueDate')
+            if not payment_date:
+                payment_date = self._get_date(tree, './/cbc:DueDate')
+
             municipality = self._get_text(tree, './/cac:DeliveryLocation//cbc:CityName')
 
             # Extract invoice notes/description
@@ -55,11 +74,24 @@ class UBLXMLParser(XMLParserRepository):
 
             # Extract buyer information
             buyer_party = tree.find('.//cac:AccountingCustomerParty/cac:Party', self.NAMESPACES)
-            buyer_nit = self._get_text(buyer_party, './/cac:PartyTaxScheme/cbc:CompanyID') if buyer_party is not None else ""
-            buyer_name = self._get_text(buyer_party, './/cac:PartyName/cbc:Name') if buyer_party is not None else ""
 
-            if not buyer_name:
-                buyer_name = self._get_text(buyer_party, './/cac:PartyLegalEntity/cbc:RegistrationName') if buyer_party is not None else ""
+            # Try multiple locations for buyer NIT
+            buyer_nit = ""
+            if buyer_party is not None:
+                # Try Party/cbc:ID first (common in Colombian invoices)
+                buyer_nit = self._get_text(buyer_party, './/cbc:ID')
+                # If not found, try PartyTaxScheme/cbc:CompanyID
+                if not buyer_nit:
+                    buyer_nit = self._get_text(buyer_party, './/cac:PartyTaxScheme/cbc:CompanyID')
+
+            # Try multiple locations for buyer name
+            buyer_name = ""
+            if buyer_party is not None:
+                # Try RegistrationName first
+                buyer_name = self._get_text(buyer_party, './/cac:PartyLegalEntity/cbc:RegistrationName')
+                # If not found, try PartyName
+                if not buyer_name:
+                    buyer_name = self._get_text(buyer_party, './/cac:PartyName/cbc:Name')
 
             # Create invoice
             invoice = Invoice(
@@ -106,8 +138,12 @@ class UBLXMLParser(XMLParserRepository):
             quantity_str = self._get_text(line_element, './/cbc:InvoicedQuantity')
             quantity = Decimal(quantity_str) if quantity_str else Decimal('0')
 
-            unit_code = line_element.find('.//cbc:InvoicedQuantity', self.NAMESPACES)
-            unit_of_measure = unit_code.get('unitCode', '') if unit_code is not None else ''
+            # Get unit code and convert to readable name
+            unit_code_element = line_element.find('.//cbc:InvoicedQuantity', self.NAMESPACES)
+            unit_code = unit_code_element.get('unitCode', '') if unit_code_element is not None else ''
+
+            # Map unit code to readable name (e.g., 94 -> KG)
+            unit_of_measure = self.UNIT_CODE_MAP.get(unit_code, unit_code)
 
             # Price
             price_str = self._get_text(line_element, './/cac:Price/cbc:PriceAmount')
