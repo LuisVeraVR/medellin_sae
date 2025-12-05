@@ -63,7 +63,12 @@ class UBLXMLParser(XMLParserRepository):
             if not payment_date:
                 payment_date = self._get_date(tree, './/cbc:DueDate')
 
-            municipality = self._get_text(tree, './/cac:DeliveryLocation//cbc:CityName')
+            # Get municipality from buyer's address
+            municipality = self._get_text(tree, './/cac:AccountingCustomerParty/cac:Party/cac:PhysicalLocation/cac:Address/cbc:CityName')
+
+            # Fallback: try DeliveryLocation if not found in buyer's address
+            if not municipality:
+                municipality = self._get_text(tree, './/cac:DeliveryLocation//cbc:CityName')
 
             # Extract invoice notes/description
             description = self._get_text(tree, './/cbc:Note')
@@ -125,13 +130,8 @@ class UBLXMLParser(XMLParserRepository):
                 principal_vc="V"  # V = Vendedor (dueño de la factura)
             )
 
-            # Extract line items
-            # Pulgarin invoices have InvoiceLines inside cac:Attachment
-            lines = tree.findall('.//cac:Attachment//cac:InvoiceLine', self.NAMESPACES)
-
-            # Fallback: try standard location if not found in Attachment
-            if not lines:
-                lines = tree.findall('.//cac:InvoiceLine', self.NAMESPACES)
+            # Extract line items (after CDATA extraction, InvoiceLines are directly in Invoice)
+            lines = tree.findall('.//cac:InvoiceLine', self.NAMESPACES)
 
             for line in lines:
                 item = self._parse_line_item(line)
@@ -169,8 +169,13 @@ class UBLXMLParser(XMLParserRepository):
             price_str = self._get_text(line_element, './/cac:Price/cbc:PriceAmount')
             unit_price = Decimal(price_str) if price_str else Decimal('0')
 
-            # Tax percentage
-            tax_percent_str = self._get_text(line_element, './/cac:TaxTotal/cac:TaxSubtotal/cbc:Percent')
+            # Tax percentage - in Pulgarin invoices it's inside TaxCategory
+            tax_percent_str = self._get_text(line_element, './/cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:Percent')
+
+            # Fallback: try without TaxCategory for other formats
+            if not tax_percent_str:
+                tax_percent_str = self._get_text(line_element, './/cac:TaxTotal/cac:TaxSubtotal/cbc:Percent')
+
             tax_percentage = Decimal(tax_percent_str) if tax_percent_str else Decimal('0')
 
             return InvoiceItem(
