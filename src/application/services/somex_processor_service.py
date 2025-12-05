@@ -606,8 +606,10 @@ class SomexProcessorService:
             "Nombre Producto",
             "Codigo Subyacente",
             "Unidad Medida en Kg,Un,Lt",
+            "Peso",
             "Cantidad (5 decimales - separdor coma)",
             "Precio Unitario (5 decimales - separdor coma)",
+            "Valor Total (5 decimales - separdor coma)",
             "Fecha Factura Año-Mes-Dia",
             "Fecha Pago Año-Mes-Dia",
             "Nit Comprador (Existente)",
@@ -651,53 +653,66 @@ class SomexProcessorService:
             ws.cell(row=row_num, column=3).value = item.get('product_code', '')
             ws.cell(row=row_num, column=4).value = item.get('unit_of_measure', '')
 
+            # Peso (weight)
+            weight = item.get('weight')
+            if weight:
+                ws.cell(row=row_num, column=5).value = self.format_decimal(weight)
+            else:
+                ws.cell(row=row_num, column=5).value = ""
+
             # Quantity with 5 decimals and comma separator
-            ws.cell(row=row_num, column=5).value = self.format_decimal(
+            ws.cell(row=row_num, column=6).value = self.format_decimal(
                 item.get('quantity', Decimal('0'))
             )
 
             # Unit price with 5 decimals and comma separator
-            ws.cell(row=row_num, column=6).value = self.format_decimal(
+            ws.cell(row=row_num, column=7).value = self.format_decimal(
                 item.get('unit_price', Decimal('0'))
             )
 
-            ws.cell(row=row_num, column=7).value = invoice_data.get(
+            # Valor Total (quantity * unit_price) with 5 decimals and comma separator
+            quantity = item.get('quantity', Decimal('0'))
+            unit_price = item.get('unit_price', Decimal('0'))
+            total_value = quantity * unit_price
+            ws.cell(row=row_num, column=8).value = self.format_decimal(total_value)
+
+            ws.cell(row=row_num, column=9).value = invoice_data.get(
                 'invoice_date', ''
             )
-            ws.cell(row=row_num, column=8).value = invoice_data.get(
+            ws.cell(row=row_num, column=10).value = invoice_data.get(
                 'payment_date', ''
             )
-            ws.cell(row=row_num, column=9).value = invoice_data.get(
+            ws.cell(row=row_num, column=11).value = invoice_data.get(
                 'buyer_nit', ''
             )
-            ws.cell(row=row_num, column=10).value = invoice_data.get(
+            ws.cell(row=row_num, column=12).value = invoice_data.get(
                 'buyer_name', ''
             )
-            ws.cell(row=row_num, column=11).value = invoice_data.get(
+            ws.cell(row=row_num, column=13).value = invoice_data.get(
                 'seller_nit', ''
             )
-            ws.cell(row=row_num, column=12).value = invoice_data.get(
+            ws.cell(row=row_num, column=14).value = invoice_data.get(
                 'seller_name', ''
             )
-            ws.cell(row=row_num, column=13).value = ""  # Principal V,C
-            ws.cell(row=row_num, column=14).value = invoice_data.get(
+            ws.cell(row=row_num, column=15).value = ""  # Principal V,C
+            ws.cell(row=row_num, column=16).value = invoice_data.get(
                 'municipality', ''
             )
-            ws.cell(row=row_num, column=15).value = str(
+            ws.cell(row=row_num, column=17).value = str(
                 item.get('tax_percentage', '')
             )
-            ws.cell(row=row_num, column=16).value = ""  # Descripción
-            ws.cell(row=row_num, column=17).value = ""  # Activa
-            ws.cell(row=row_num, column=18).value = ""  # Factura Activa
-            ws.cell(row=row_num, column=19).value = ""  # Bodega
-            ws.cell(row=row_num, column=20).value = ""  # Incentivo
+            ws.cell(row=row_num, column=18).value = ""  # Descripción
+            ws.cell(row=row_num, column=19).value = ""  # Activa
+            ws.cell(row=row_num, column=20).value = ""  # Factura Activa
+            ws.cell(row=row_num, column=21).value = ""  # Bodega
+            ws.cell(row=row_num, column=22).value = ""  # Incentivo
 
             # Cantidad Original with 5 decimals and comma separator
-            ws.cell(row=row_num, column=21).value = self.format_decimal(
+            ws.cell(row=row_num, column=23).value = self.format_decimal(
                 item.get('quantity', Decimal('0'))
             )
 
-            ws.cell(row=row_num, column=22).value = ""  # Moneda
+            ws.cell(row=row_num, column=24).value = ""  # Moneda
 
             row_num += 1
 
@@ -840,8 +855,10 @@ class SomexProcessorService:
             "Nombre Producto",
             "Codigo Subyacente",
             "Unidad Medida en Kg,Un,Lt",
+            "Peso",
             "Cantidad (5 decimales - separdor coma)",
             "Precio Unitario (5 decimales - separdor coma)",
+            "Valor Total (5 decimales - separdor coma)",
             "Fecha Factura Año-Mes-Dia",
             "Fecha Pago Año-Mes-Dia",
             "Nit Comprador (Existente)",
@@ -898,64 +915,77 @@ class SomexProcessorService:
                 # Unidad Medida en Kg,Un,Lt (siempre KG para Somex)
                 ws.cell(row=row_num, column=4).value = 'KG'
 
+                # Peso (weight)
+                weight = item.get('weight')
+                if weight:
+                    ws.cell(row=row_num, column=5).value = self.format_decimal(weight)
+                else:
+                    ws.cell(row=row_num, column=5).value = ""
+
                 # Cantidad (5 decimales - separador coma) - AJUSTADA con kilos
-                ws.cell(row=row_num, column=5).value = self.format_decimal(
+                ws.cell(row=row_num, column=6).value = self.format_decimal(
                     item.get('quantity_adjusted', item.get('quantity', Decimal('0')))
                 )
 
                 # Precio Unitario (5 decimales - separador coma)
-                ws.cell(row=row_num, column=6).value = self.format_decimal(
+                ws.cell(row=row_num, column=7).value = self.format_decimal(
                     item.get('unit_price', Decimal('0'))
                 )
 
+                # Valor Total (5 decimales - separador coma)
+                quantity = item.get('quantity_adjusted', item.get('quantity', Decimal('0')))
+                unit_price = item.get('unit_price', Decimal('0'))
+                total_value = quantity * unit_price
+                ws.cell(row=row_num, column=8).value = self.format_decimal(total_value)
+
                 # Fecha Factura Año-Mes-Dia
-                ws.cell(row=row_num, column=7).value = invoice_data.get(
+                ws.cell(row=row_num, column=9).value = invoice_data.get(
                     'invoice_date', ''
                 )
                 # Fecha Pago Año-Mes-Dia
-                ws.cell(row=row_num, column=8).value = invoice_data.get(
+                ws.cell(row=row_num, column=10).value = invoice_data.get(
                     'payment_date', ''
                 )
                 # Nit Comprador (Existente)
-                ws.cell(row=row_num, column=9).value = invoice_data.get(
+                ws.cell(row=row_num, column=11).value = invoice_data.get(
                     'buyer_nit', ''
                 )
                 # Nombre Comprador
-                ws.cell(row=row_num, column=10).value = invoice_data.get(
+                ws.cell(row=row_num, column=12).value = invoice_data.get(
                     'buyer_name', ''
                 )
                 # Nit Vendedor (Existente) - siempre 800221724 para Somex
-                ws.cell(row=row_num, column=11).value = '800221724'
+                ws.cell(row=row_num, column=13).value = '800221724'
                 # Nombre Vendedor - siempre SOMEX S.A.S.
-                ws.cell(row=row_num, column=12).value = 'SOMEX S.A.S.'
+                ws.cell(row=row_num, column=14).value = 'SOMEX S.A.S.'
                 # Principal V,C - siempre "V"
-                ws.cell(row=row_num, column=13).value = "V"
+                ws.cell(row=row_num, column=15).value = "V"
                 # Municipio (Nombre Exacto de la Ciudad)
-                ws.cell(row=row_num, column=14).value = invoice_data.get(
+                ws.cell(row=row_num, column=16).value = invoice_data.get(
                     'municipality', ''
                 )
                 # Iva (N°%)
-                ws.cell(row=row_num, column=15).value = str(
+                ws.cell(row=row_num, column=17).value = str(
                     item.get('tax_percentage', '')
                 )
                 # Descripción - vacía
-                ws.cell(row=row_num, column=16).value = ""
+                ws.cell(row=row_num, column=18).value = ""
                 # Activa - 1
-                ws.cell(row=row_num, column=17).value = "1"
+                ws.cell(row=row_num, column=19).value = "1"
                 # Factura Activa - 1
-                ws.cell(row=row_num, column=18).value = "1"
+                ws.cell(row=row_num, column=20).value = "1"
                 # Bodega - vacía
-                ws.cell(row=row_num, column=19).value = ""
+                ws.cell(row=row_num, column=21).value = ""
                 # Incentivo - vacía
-                ws.cell(row=row_num, column=20).value = ""
+                ws.cell(row=row_num, column=22).value = ""
 
                 # Cantidad Original (5 decimales - separador coma) - SIN ajustar
-                ws.cell(row=row_num, column=21).value = self.format_decimal(
+                ws.cell(row=row_num, column=23).value = self.format_decimal(
                     item.get('quantity_original', Decimal('0'))
                 )
 
                 # Moneda (1,2,3) - siempre 1
-                ws.cell(row=row_num, column=22).value = "1"
+                ws.cell(row=row_num, column=24).value = "1"
 
                 row_num += 1
 

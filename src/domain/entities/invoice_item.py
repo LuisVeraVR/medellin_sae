@@ -16,6 +16,12 @@ class InvoiceItem:
     unit_price: Decimal
     tax_percentage: Decimal
     description: Optional[str] = None
+    weight: Optional[Decimal] = None  # Peso del producto (PESO)
+
+    @property
+    def total_value(self) -> Decimal:
+        """Calculate total value (quantity * unit_price) - valor total"""
+        return self.quantity * self.unit_price
 
     def get_subtotal(self) -> Decimal:
         """Calculate subtotal without tax"""

@@ -178,6 +178,29 @@ class UBLXMLParser(XMLParserRepository):
 
             tax_percentage = Decimal(tax_percent_str) if tax_percent_str else Decimal('0')
 
+            # Extract weight (PESO) - try multiple locations
+            weight = None
+            # Try cbc:Weight
+            weight_str = self._get_text(line_element, './/cac:Item/cbc:Weight')
+            if not weight_str:
+                # Try cbc:NetWeight
+                weight_str = self._get_text(line_element, './/cac:Item/cbc:NetWeight')
+            if not weight_str:
+                # Try ItemProperty with Name containing "peso" or "weight"
+                properties = line_element.findall('.//cac:Item/cac:ItemProperty', self.NAMESPACES)
+                for prop in properties:
+                    name = self._get_text(prop, './/cbc:Name')
+                    if name and ('peso' in name.lower() or 'weight' in name.lower()):
+                        weight_str = self._get_text(prop, './/cbc:Value')
+                        if weight_str:
+                            break
+
+            if weight_str:
+                try:
+                    weight = Decimal(weight_str)
+                except:
+                    weight = None
+
             return InvoiceItem(
                 product_name=product_name or "",
                 product_code=product_code or "",
@@ -185,7 +208,8 @@ class UBLXMLParser(XMLParserRepository):
                 quantity=quantity,
                 unit_of_measure=unit_of_measure,
                 unit_price=unit_price,
-                tax_percentage=tax_percentage
+                tax_percentage=tax_percentage,
+                weight=weight
             )
 
         except Exception as e:

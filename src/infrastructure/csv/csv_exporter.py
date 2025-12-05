@@ -35,8 +35,10 @@ class CSVExporter(CSVRepository):
             'Nombre Producto',
             'Codigo Subyacente',
             'Unidad Medida en Kg,Un,Lt',
+            'Peso',
             'Cantidad',
             'Precio Unitario',
+            'Valor Total',
             'Fecha Factura',
             'Fecha Pago',
             'Nit Comprador',
@@ -67,8 +69,10 @@ class CSVExporter(CSVRepository):
                         item.product_name,
                         item.subyacente_code,  # Código subyacente (SPN-1)
                         item.unit_of_measure,
+                        self._format_decimal(item.weight, client) if item.weight else '',  # Peso
                         self._format_decimal(item.quantity, client),
                         self._format_decimal(item.unit_price, client),
+                        self._format_decimal(item.total_value, client),  # Valor Total
                         invoice.invoice_date.strftime('%Y-%m-%d') if invoice.invoice_date else '',
                         invoice.payment_date.strftime('%Y-%m-%d') if invoice.payment_date else '',
                         invoice.buyer_nit,
