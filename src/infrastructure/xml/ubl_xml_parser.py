@@ -2,10 +2,13 @@
 from lxml import etree
 from decimal import Decimal
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from src.domain.entities.invoice import Invoice
 from src.domain.entities.invoice_item import InvoiceItem
 from src.domain.repositories.xml_parser_repository import XMLParserRepository
+
+if TYPE_CHECKING:
+    from src.application.services.pulgarin_inventory_service import PulgarinInventoryService
 
 
 class UBLXMLParser(XMLParserRepository):
@@ -19,6 +22,15 @@ class UBLXMLParser(XMLParserRepository):
         'sts': 'dian:gov:co:facturaelectronica:Structures-2-1',
         'inv': 'urn:oasis:names:specification:ubl:schema:xsd:Invoice-2'
     }
+
+    def __init__(self, inventory_service: Optional['PulgarinInventoryService'] = None):
+        """
+        Initialize UBL XML Parser
+
+        Args:
+            inventory_service: Optional Pulgarin inventory service for weight lookup
+        """
+        self.inventory_service = inventory_service
 
     # Mapeo de códigos de unidad UBL a nombres legibles
     # Basado en UN/ECE Recommendation 20
@@ -178,28 +190,40 @@ class UBLXMLParser(XMLParserRepository):
 
             tax_percentage = Decimal(tax_percent_str) if tax_percent_str else Decimal('0')
 
-            # Extract weight (PESO) - try multiple locations
+            # Extract weight (PESO)
             weight = None
-            # Try cbc:Weight
-            weight_str = self._get_text(line_element, './/cac:Item/cbc:Weight')
-            if not weight_str:
-                # Try cbc:NetWeight
-                weight_str = self._get_text(line_element, './/cac:Item/cbc:NetWeight')
-            if not weight_str:
-                # Try ItemProperty with Name containing "peso" or "weight"
-                properties = line_element.findall('.//cac:Item/cac:ItemProperty', self.NAMESPACES)
-                for prop in properties:
-                    name = self._get_text(prop, './/cbc:Name')
-                    if name and ('peso' in name.lower() or 'weight' in name.lower()):
-                        weight_str = self._get_text(prop, './/cbc:Value')
-                        if weight_str:
-                            break
 
-            if weight_str:
-                try:
-                    weight = Decimal(weight_str)
-                except:
-                    weight = None
+            # First priority: Look up in inventory by product name
+            if self.inventory_service and product_name:
+                weight = self.inventory_service.get_weight(product_name)
+                if weight:
+                    # Also get unit of measure from inventory if available
+                    inventory_unit = self.inventory_service.get_unit_of_measure(product_name)
+                    if inventory_unit:
+                        unit_of_measure = inventory_unit
+
+            # Second priority: Extract from XML (if not found in inventory)
+            if weight is None:
+                # Try cbc:Weight
+                weight_str = self._get_text(line_element, './/cac:Item/cbc:Weight')
+                if not weight_str:
+                    # Try cbc:NetWeight
+                    weight_str = self._get_text(line_element, './/cac:Item/cbc:NetWeight')
+                if not weight_str:
+                    # Try ItemProperty with Name containing "peso" or "weight"
+                    properties = line_element.findall('.//cac:Item/cac:ItemProperty', self.NAMESPACES)
+                    for prop in properties:
+                        name = self._get_text(prop, './/cbc:Name')
+                        if name and ('peso' in name.lower() or 'weight' in name.lower()):
+                            weight_str = self._get_text(prop, './/cbc:Value')
+                            if weight_str:
+                                break
+
+                if weight_str:
+                    try:
+                        weight = Decimal(weight_str)
+                    except:
+                        weight = None
 
             return InvoiceItem(
                 product_name=product_name or "",
