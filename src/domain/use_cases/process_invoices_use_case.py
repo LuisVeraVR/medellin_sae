@@ -35,7 +35,8 @@ class ProcessInvoicesUseCase:
         client: Client,
         email: str,
         password: str,
-        output_dir: str
+        output_dir: str,
+        allow_reprocess: bool = False
     ) -> ProcessingResult:
         """Execute invoice processing for a client"""
         result = ProcessingResult(
@@ -53,11 +54,14 @@ class ProcessInvoicesUseCase:
             email_ids = self.email_repo.search_emails(client.search_criteria)
             self.logger.info(f"Found {len(email_ids)} emails for {client.name}")
 
+            if allow_reprocess:
+                self.logger.info(f"REPROCESS MODE: Processing all emails (ignoring database)")
+
             invoices = []
 
             for email_id in email_ids:
-                # Check if already processed
-                if self.database_repo.is_email_processed(email_id):
+                # Check if already processed (skip if not reprocessing)
+                if not allow_reprocess and self.database_repo.is_email_processed(email_id):
                     self.logger.info(f"Email {email_id} already processed, skipping")
                     continue
 

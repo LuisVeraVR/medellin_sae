@@ -1,12 +1,12 @@
 {
   "clients": [
     {
-      "id": "triple_a",
-      "name": "Comercializadora Triple A",
+      "id": "pulgarin",
+      "name": "Pulgarin",
       "enabled": true,
       "email_config": {
-        "search_criteria": "(UNSEEN SUBJECT \"COMERCIALIZADORA TRIPLE A\")",
-        "imap_server": "imap.correagro.com"
+        "search_criteria": "(UNSEEN SUBJECT \"PULGARIN\")",
+        "imap_server": "outlook.office365.com"
       },
       "xml_config": {
         "format": "ubl_2.1"

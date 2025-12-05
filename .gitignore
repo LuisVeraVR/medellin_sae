@@ -41,6 +41,7 @@ env/
 
 # Application data
 data/*.db
+data/oauth_token_cache.json
 logs/*.log
 output/*.csv
 

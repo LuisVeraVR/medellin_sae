@@ -65,7 +65,7 @@ class CSVExporter(CSVRepository):
                     row = [
                         invoice.invoice_number,
                         item.product_name,
-                        item.product_code,
+                        item.subyacente_code,  # Código subyacente (SPN-1)
                         item.unit_of_measure,
                         self._format_decimal(item.quantity, client),
                         self._format_decimal(item.unit_price, client),
@@ -75,16 +75,16 @@ class CSVExporter(CSVRepository):
                         invoice.buyer_name,
                         invoice.seller_nit,
                         invoice.seller_name,
-                        invoice.principal_vc or '',
+                        invoice.principal_vc,  # V = Vendedor
                         invoice.municipality,
                         self._format_decimal(item.tax_percentage, client, use_decimal_places=False),
-                        item.description or '',
-                        invoice.active or '',
-                        invoice.invoice_active or '',
+                        invoice.description or '',  # Nota de la factura
+                        invoice.active,  # Siempre 1
+                        invoice.invoice_active,  # Siempre 1
                         invoice.warehouse or '',
                         invoice.incentive or '',
                         self._format_decimal(item.quantity, client),  # Cantidad Original
-                        invoice.currency
+                        invoice.currency  # 1=COP, 2=USD, 3=EUR
                     ]
                     writer.writerow(row)
 

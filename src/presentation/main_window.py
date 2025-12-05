@@ -17,6 +17,7 @@ from src.domain.entities.processing_result import ProcessingResult
 from src.domain.use_cases.process_invoices_use_case import ProcessInvoicesUseCase
 from src.domain.use_cases.check_updates_use_case import CheckUpdatesUseCase
 from src.infrastructure.email.imap_email_repository import IMAPEmailRepository
+from src.infrastructure.email.oauth2_imap_repository import OAuth2IMAPRepository
 from src.infrastructure.xml.ubl_xml_parser import UBLXMLParser
 from src.infrastructure.database.sqlite_repository import SQLiteRepository
 from src.infrastructure.csv.csv_exporter import CSVExporter
@@ -41,7 +42,8 @@ class ProcessingWorker(QThread):
         password: str,
         output_dir: str,
         use_case: ProcessInvoicesUseCase,
-        logger: logging.Logger
+        logger: logging.Logger,
+        allow_reprocess: bool = False
     ):
         super().__init__()
         self.client = client
@@ -50,6 +52,7 @@ class ProcessingWorker(QThread):
         self.output_dir = output_dir
         self.use_case = use_case
         self.logger = logger
+        self.allow_reprocess = allow_reprocess
 
     def run(self) -> None:
         """Execute processing in background"""
@@ -60,7 +63,8 @@ class ProcessingWorker(QThread):
                 self.client,
                 self.email,
                 self.password,
-                self.output_dir
+                self.output_dir,
+                allow_reprocess=self.allow_reprocess
             )
 
             self.finished.emit(result)
@@ -94,8 +98,7 @@ class MainWindow(QMainWindow):
         self.app_config = self.config_service.load_app_config()
         self.clients = self.config_service.load_clients()
 
-        # Initialize repositories
-        self.email_repo = IMAPEmailRepository()
+        # Initialize repositories (email_repo is created per-client in _on_processing_requested)
         self.xml_parser_repo = UBLXMLParser()
         self.csv_repo = CSVExporter()
         self.update_repo = GitHubUpdater()
@@ -198,7 +201,7 @@ class MainWindow(QMainWindow):
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             self.show()
 
-    def _on_processing_requested(self, client_id: str) -> None:
+    def _on_processing_requested(self, client_id: str, allow_reprocess: bool = False) -> None:
         """Handle processing request from client tab"""
         # Get email credentials
         email, password = self.config_tab.get_email_credentials()
@@ -216,13 +219,24 @@ class MainWindow(QMainWindow):
         if not client:
             return
 
+        # Select appropriate email repository based on IMAP server
+        # Office 365 (outlook.office365.com) requires OAuth 2.0
+        # Other servers use basic authentication
+        imap_server = client.email_config.get('imap_server', '')
+        if 'office365' in imap_server or 'outlook.office365.com' in imap_server:
+            email_repo = OAuth2IMAPRepository()
+            self.logger.info(f"Using OAuth 2.0 authentication for {imap_server}")
+        else:
+            email_repo = IMAPEmailRepository()
+            self.logger.info(f"Using basic authentication for {imap_server}")
+
         # Create database repository for client
         db_path = Path("data") / f"{client.id}_processed.db"
         db_repo = SQLiteRepository(str(db_path))
 
         # Create use case
         use_case = ProcessInvoicesUseCase(
-            email_repo=self.email_repo,
+            email_repo=email_repo,
             xml_parser_repo=self.xml_parser_repo,
             database_repo=db_repo,
             csv_repo=self.csv_repo,
@@ -239,7 +253,8 @@ class MainWindow(QMainWindow):
             password=password,
             output_dir=str(output_dir),
             use_case=use_case,
-            logger=self.logger
+            logger=self.logger,
+            allow_reprocess=allow_reprocess
         )
 
         worker.finished.connect(lambda result: self._on_processing_finished(client_id, result))
