@@ -27,6 +27,7 @@ from src.presentation.widgets.client_tab import ClientTab
 from src.presentation.widgets.config_tab import ConfigTab
 from src.presentation.widgets.logs_tab import LogsTab
 from src.presentation.widgets.somex_tab import SomexTab
+from src.presentation.widgets.pulgarin_products_tab import PulgarinProductsTab
 
 
 class ProcessingWorker(QThread):
@@ -150,6 +151,10 @@ class MainWindow(QMainWindow):
         # Create Somex SFTP tab
         self.somex_tab = SomexTab(self.logger)
         self.tabs.addTab(self.somex_tab, "Somex")
+
+        # Create Pulgarin Products tab
+        self.pulgarin_tab = PulgarinProductsTab(self.logger)
+        self.tabs.addTab(self.pulgarin_tab, "Productos Pulgarin")
 
         # Create config tab
         self.config_tab = ConfigTab(self.app_config)
