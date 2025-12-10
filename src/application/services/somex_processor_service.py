@@ -209,9 +209,38 @@ class SomexProcessorService:
             # Log root tag
             self.logger.info(f"XML root tag: {tree.tag}")
 
+            # Variables to store AttachedDocument data
+            attached_invoice_number = None
+            attached_buyer_nit = None
+            attached_buyer_name = None
+
             # Check if this is an AttachedDocument with embedded Invoice
             if 'AttachedDocument' in tree.tag:
-                self.logger.info("Detected AttachedDocument, extracting embedded Invoice")
+                self.logger.info("Detected AttachedDocument, extracting data from it")
+
+                # Extract invoice number from AttachedDocument
+                # Try cbc:ID first, then cbc:ParentDocumentID
+                attached_invoice_number = self._get_text(tree, './/cbc:ID')
+                if not attached_invoice_number:
+                    attached_invoice_number = self._get_text(tree, './/cbc:ParentDocumentID')
+
+                self.logger.info(f"Invoice number from AttachedDocument: {attached_invoice_number}")
+
+                # Extract buyer data from ReceiverParty in AttachedDocument
+                receiver_party = tree.find('.//cac:ReceiverParty', self.NAMESPACES)
+                if receiver_party is not None:
+                    attached_buyer_nit = self._get_text(
+                        receiver_party, './/cac:PartyTaxScheme/cbc:CompanyID'
+                    )
+                    attached_buyer_name = self._get_text(
+                        receiver_party, './/cac:PartyTaxScheme/cbc:RegistrationName'
+                    )
+                    self.logger.info(
+                        f"Buyer from AttachedDocument: NIT={attached_buyer_nit}, "
+                        f"Name={attached_buyer_name}"
+                    )
+
+                # Now extract embedded Invoice
                 tree = self._extract_embedded_invoice(tree)
 
                 if tree is None:
@@ -223,8 +252,31 @@ class SomexProcessorService:
             # Extract invoice data using Somex-specific rules
             invoice_data = self._parse_somex_invoice(tree)
 
+            # Override with AttachedDocument data if available
+            if invoice_data and attached_invoice_number:
+                self.logger.info(
+                    f"Overriding invoice number: {invoice_data.get('invoice_number')} "
+                    f"-> {attached_invoice_number}"
+                )
+                invoice_data['invoice_number'] = attached_invoice_number
+
+            if invoice_data and attached_buyer_nit:
+                self.logger.info(
+                    f"Overriding buyer NIT: {invoice_data.get('buyer_nit')} "
+                    f"-> {attached_buyer_nit}"
+                )
+                invoice_data['buyer_nit'] = attached_buyer_nit
+
+            if invoice_data and attached_buyer_name:
+                self.logger.info(
+                    f"Overriding buyer name: {invoice_data.get('buyer_name')} "
+                    f"-> {attached_buyer_name}"
+                )
+                invoice_data['buyer_name'] = attached_buyer_name
+
             if invoice_data:
-                self.logger.info(f"Invoice number: {invoice_data['invoice_number']}")
+                self.logger.info(f"Final invoice number: {invoice_data['invoice_number']}")
+                self.logger.info(f"Final buyer: {invoice_data['buyer_nit']} - {invoice_data['buyer_name']}")
 
             return invoice_data
 
