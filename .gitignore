@@ -1,6 +1,9 @@
 # Environment variables
 .env
 
+# OAuth configuration (contiene credenciales de Azure AD)
+config/oauth_config.json
+
 # Python
 __pycache__/
 *.py[cod]

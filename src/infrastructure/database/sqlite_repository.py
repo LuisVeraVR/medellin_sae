@@ -50,6 +50,25 @@ class SQLiteRepository(DatabaseRepository):
             )
         ''')
 
+        # Table for Pulgarin products
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pulgarin_products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                codigo TEXT,
+                descripcion TEXT NOT NULL,
+                peso TEXT NOT NULL,
+                um TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL
+            )
+        ''')
+
+        # Index for faster lookups by codigo
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_pulgarin_codigo
+            ON pulgarin_products(codigo)
+        ''')
+
         conn.commit()
         conn.close()
 
@@ -134,3 +153,243 @@ class SQLiteRepository(DatabaseRepository):
             'invoices_generated': invoices_count,
             'errors': errors_count
         }
+
+    # Pulgarin Products Management Methods
+
+    def save_product(self, codigo: Optional[str], descripcion: str,
+                    peso: str, um: str) -> int:
+        """Save or update a Pulgarin product
+
+        Args:
+            codigo: Product code (can be None)
+            descripcion: Product description
+            peso: Product weight
+            um: Unit of measure (U/M)
+
+        Returns:
+            Product ID
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        now = datetime.now()
+
+        # Check if product exists (by codigo if provided, otherwise always insert)
+        if codigo is not None:
+            cursor.execute(
+                'SELECT id FROM pulgarin_products WHERE codigo = ?',
+                (codigo,)
+            )
+            existing = cursor.fetchone()
+
+            if existing:
+                # Update existing product
+                cursor.execute(
+                    '''UPDATE pulgarin_products
+                       SET descripcion = ?, peso = ?, um = ?, updated_at = ?
+                       WHERE codigo = ?''',
+                    (descripcion, peso, um, now, codigo)
+                )
+                product_id = existing[0]
+            else:
+                # Insert new product
+                cursor.execute(
+                    '''INSERT INTO pulgarin_products
+                       (codigo, descripcion, peso, um, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?)''',
+                    (codigo, descripcion, peso, um, now, now)
+                )
+                product_id = cursor.lastrowid
+        else:
+            # Insert new product with NULL codigo
+            cursor.execute(
+                '''INSERT INTO pulgarin_products
+                   (codigo, descripcion, peso, um, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)''',
+                (None, descripcion, peso, um, now, now)
+            )
+            product_id = cursor.lastrowid
+
+        conn.commit()
+        conn.close()
+
+        return product_id
+
+    def get_product_by_code(self, codigo: str) -> Optional[dict]:
+        """Get a product by its code
+
+        Args:
+            codigo: Product code
+
+        Returns:
+            Product dictionary or None if not found
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''SELECT id, codigo, descripcion, peso, um, created_at, updated_at
+               FROM pulgarin_products
+               WHERE codigo = ?''',
+            (codigo,)
+        )
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            return dict(row)
+        return None
+
+    def get_all_products(self, limit: Optional[int] = None,
+                        offset: int = 0) -> list:
+        """Get all Pulgarin products
+
+        Args:
+            limit: Maximum number of products to return (None for all)
+            offset: Number of products to skip
+
+        Returns:
+            List of product dictionaries
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        if limit:
+            cursor.execute(
+                '''SELECT id, codigo, descripcion, peso, um, created_at, updated_at
+                   FROM pulgarin_products
+                   ORDER BY id DESC
+                   LIMIT ? OFFSET ?''',
+                (limit, offset)
+            )
+        else:
+            cursor.execute(
+                '''SELECT id, codigo, descripcion, peso, um, created_at, updated_at
+                   FROM pulgarin_products
+                   ORDER BY id DESC'''
+            )
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    def delete_product(self, product_id: Optional[int] = None,
+                      codigo: Optional[str] = None) -> bool:
+        """Delete a product by ID or codigo
+
+        Args:
+            product_id: Product ID
+            codigo: Product code
+
+        Returns:
+            True if deleted, False if not found
+        """
+        if not product_id and not codigo:
+            raise ValueError("Must provide either product_id or codigo")
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        if product_id:
+            cursor.execute(
+                'DELETE FROM pulgarin_products WHERE id = ?',
+                (product_id,)
+            )
+        else:
+            cursor.execute(
+                'DELETE FROM pulgarin_products WHERE codigo = ?',
+                (codigo,)
+            )
+
+        deleted = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+
+        return deleted
+
+    def get_products_count(self) -> int:
+        """Get total count of Pulgarin products
+
+        Returns:
+            Total number of products
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT COUNT(*) FROM pulgarin_products')
+        count = cursor.fetchone()[0]
+
+        conn.close()
+        return count
+
+    @staticmethod
+    def normalize_text(text: str) -> str:
+        """Normalize text for comparison (remove extra spaces, lowercase, etc.)
+
+        Args:
+            text: Text to normalize
+
+        Returns:
+            Normalized text
+        """
+        if not text:
+            return ""
+        # Convert to lowercase, strip whitespace, replace multiple spaces with single space
+        normalized = ' '.join(text.lower().strip().split())
+        return normalized
+
+    def find_product_by_description(self, descripcion: str) -> Optional[dict]:
+        """Find a product by normalized description
+
+        Args:
+            descripcion: Product description to search for
+
+        Returns:
+            Product dictionary or None if not found
+        """
+        normalized_search = self.normalize_text(descripcion)
+
+        if not normalized_search:
+            return None
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Get all products and search by normalized description
+        cursor.execute(
+            'SELECT id, codigo, descripcion, peso, um, created_at, updated_at FROM pulgarin_products'
+        )
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        # Search for exact match in normalized descriptions
+        for row in rows:
+            if self.normalize_text(row['descripcion']) == normalized_search:
+                return dict(row)
+
+        return None
+
+    def find_product_by_code_or_description(self, codigo: Optional[str],
+                                           descripcion: str) -> Optional[dict]:
+        """Find a product by code (if provided) or by normalized description
+
+        Args:
+            codigo: Product code (optional)
+            descripcion: Product description
+
+        Returns:
+            Product dictionary or None if not found
+        """
+        # First try by code if provided
+        if codigo:
+            product = self.get_product_by_code(codigo)
+            if product:
+                return product
+
+        # Then try by description
+        return self.find_product_by_description(descripcion)

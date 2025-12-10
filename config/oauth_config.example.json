@@ -1,0 +1,19 @@
+{
+  "azure_client_id": "TU_AZURE_CLIENT_ID_AQUI",
+  "azure_tenant_id": "common",
+  "enabled": true,
+  "description": "Configuración OAuth 2.0 para Office 365",
+  "instructions": [
+    "1. Reemplaza TU_AZURE_CLIENT_ID_AQUI con tu Application (client) ID de Azure AD",
+    "2. Si tienes un tenant específico, reemplaza 'common' con tu Tenant ID",
+    "3. Guarda este archivo como 'oauth_config.json' (sin el .example)",
+    "4. Esta configuración se embebe en el ejecutable al hacer build",
+    "5. Los usuarios finales NO necesitan configurar nada, solo autenticarse"
+  ],
+  "notes": [
+    "Este archivo se usa para distribuir el ejecutable con credenciales preconfiguradas",
+    "Para desarrollo local, puedes seguir usando .env",
+    "El archivo .env tiene prioridad sobre este archivo si ambos existen",
+    "NO incluyas este archivo en Git si contiene credenciales reales"
+  ]
+}

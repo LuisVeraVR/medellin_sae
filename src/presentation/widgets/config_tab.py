@@ -1,7 +1,11 @@
 """Configuration Tab Widget - Presentation Layer"""
+import os
+import logging
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QLineEdit,
-    QPushButton, QLabel, QGroupBox, QCheckBox, QComboBox
+    QPushButton, QLabel, QGroupBox, QCheckBox, QComboBox,
+    QHBoxLayout, QMessageBox
 )
 from PyQt6.QtCore import pyqtSignal
 
@@ -10,10 +14,12 @@ class ConfigTab(QWidget):
     """Configuration tab widget"""
 
     config_changed = pyqtSignal(dict)
+    oauth_authentication_requested = pyqtSignal(str)  # Emits email
 
     def __init__(self, config: dict, parent=None):
         super().__init__(parent)
         self.config = config
+        self.logger = logging.getLogger(__name__)
         self._init_ui()
 
     def _init_ui(self) -> None:
@@ -42,16 +48,87 @@ class ConfigTab(QWidget):
         email_group = QGroupBox("Configuración Email")
         email_layout = QFormLayout()
 
+        # Email input
         self.email_input = QLineEdit()
         self.email_input.setPlaceholderText("email@example.com")
         email_layout.addRow("Email:", self.email_input)
 
+        # Password input (for basic auth)
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password_input.setPlaceholderText("Solo para autenticación básica")
         email_layout.addRow("Password:", self.password_input)
+
+        # OAuth 2.0 section
+        oauth_layout = QVBoxLayout()
+
+        oauth_info = QLabel(
+            "<b>Autenticación OAuth 2.0 (Office 365):</b><br>"
+            "Para cuentas de Office 365, usa el botón abajo para autenticar de forma segura."
+        )
+        oauth_info.setWordWrap(True)
+        oauth_layout.addWidget(oauth_info)
+
+        # OAuth button layout
+        oauth_button_layout = QHBoxLayout()
+
+        self.oauth_button = QPushButton("🔐 Autenticar con Office 365 (OAuth 2.0)")
+        self.oauth_button.setStyleSheet(
+            "QPushButton { background-color: #0078D4; color: white; padding: 10px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #106EBE; }"
+        )
+        self.oauth_button.clicked.connect(self._on_oauth_authenticate)
+        oauth_button_layout.addWidget(self.oauth_button)
+
+        # Status label
+        self.oauth_status_label = QLabel("")
+        self.oauth_status_label.setWordWrap(True)
+        oauth_button_layout.addWidget(self.oauth_status_label)
+
+        oauth_button_layout.addStretch()
+        oauth_layout.addLayout(oauth_button_layout)
+
+        # Clear token button
+        self.clear_token_button = QPushButton("🗑️ Borrar Token Guardado")
+        self.clear_token_button.setStyleSheet("color: #D13438;")
+        self.clear_token_button.clicked.connect(self._on_clear_token)
+        oauth_layout.addWidget(self.clear_token_button)
+
+        email_layout.addRow(oauth_layout)
 
         email_group.setLayout(email_layout)
         layout.addWidget(email_group)
+
+        # Azure AD settings (for OAuth)
+        azure_group = QGroupBox("Configuración Azure AD (OAuth 2.0)")
+        azure_layout = QFormLayout()
+
+        azure_info = QLabel(
+            "<i>Configura estos valores en tu archivo .env:</i><br>"
+            "AZURE_CLIENT_ID=tu-client-id<br>"
+            "AZURE_TENANT_ID=common (o tu tenant ID)"
+        )
+        azure_info.setWordWrap(True)
+        azure_layout.addRow(azure_info)
+
+        # Show current Azure config
+        client_id = os.getenv('AZURE_CLIENT_ID', '')
+        tenant_id = os.getenv('AZURE_TENANT_ID', 'common')
+
+        if client_id:
+            azure_status = QLabel(f"✓ Client ID configurado: {client_id[:8]}...")
+            azure_status.setStyleSheet("color: green;")
+        else:
+            azure_status = QLabel("✗ Client ID no configurado en .env")
+            azure_status.setStyleSheet("color: red;")
+
+        azure_layout.addRow(azure_status)
+
+        tenant_label = QLabel(f"Tenant ID: {tenant_id}")
+        azure_layout.addRow(tenant_label)
+
+        azure_group.setLayout(azure_layout)
+        layout.addWidget(azure_group)
 
         # Application settings
         app_group = QGroupBox("Configuración General")
@@ -76,6 +153,100 @@ class ConfigTab(QWidget):
 
         layout.addStretch()
         self.setLayout(layout)
+
+        # Check OAuth status on init
+        self._check_oauth_status()
+
+    def _on_oauth_authenticate(self):
+        """Handle OAuth authentication button click"""
+        email = self.email_input.text().strip()
+
+        if not email:
+            QMessageBox.warning(
+                self,
+                "Email Requerido",
+                "Por favor ingresa tu dirección de email de Office 365 antes de autenticar."
+            )
+            return
+
+        # Check if Azure credentials are configured
+        client_id = os.getenv('AZURE_CLIENT_ID')
+        if not client_id:
+            QMessageBox.critical(
+                self,
+                "Configuración Faltante",
+                "AZURE_CLIENT_ID no está configurado en el archivo .env\n\n"
+                "Por favor:\n"
+                "1. Registra una aplicación en Azure AD Portal\n"
+                "2. Copia el Application (client) ID\n"
+                "3. Agrégalo al archivo .env:\n"
+                "   AZURE_CLIENT_ID=tu-client-id-aqui\n\n"
+                "Luego reinicia la aplicación."
+            )
+            return
+
+        # Emit signal to main window to handle OAuth flow
+        self.oauth_authentication_requested.emit(email)
+
+    def _on_clear_token(self):
+        """Handle clear token button click"""
+        token_file = Path("data/oauth_token_cache.json")
+
+        if not token_file.exists():
+            QMessageBox.information(
+                self,
+                "Sin Token",
+                "No hay token guardado para borrar."
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Confirmar Borrado",
+            "¿Estás seguro de que deseas borrar el token guardado?\n\n"
+            "Tendrás que autenticarte nuevamente la próxima vez.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                token_file.unlink()
+                self.oauth_status_label.setText("✓ Token borrado")
+                self.oauth_status_label.setStyleSheet("color: orange;")
+                QMessageBox.information(
+                    self,
+                    "Token Borrado",
+                    "El token ha sido borrado exitosamente."
+                )
+                self.logger.info("OAuth token cache cleared")
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Error al borrar el token: {e}"
+                )
+                self.logger.error(f"Error clearing token: {e}")
+
+    def _check_oauth_status(self):
+        """Check if OAuth token exists"""
+        token_file = Path("data/oauth_token_cache.json")
+
+        if token_file.exists():
+            self.oauth_status_label.setText("✓ Token guardado")
+            self.oauth_status_label.setStyleSheet("color: green;")
+        else:
+            self.oauth_status_label.setText("Sin token")
+            self.oauth_status_label.setStyleSheet("color: gray;")
+
+    def update_oauth_status(self, authenticated: bool, email: str = ""):
+        """Update OAuth status after authentication"""
+        if authenticated:
+            self.oauth_status_label.setText(f"✓ Autenticado: {email}")
+            self.oauth_status_label.setStyleSheet("color: green;")
+            if email:
+                self.email_input.setText(email)
+        else:
+            self._check_oauth_status()
 
     def _on_save(self) -> None:
         """Handle save button click"""

@@ -19,6 +19,7 @@ import logging
 from email.header import decode_header
 from typing import List, Tuple, Optional
 from pathlib import Path
+import sys
 
 try:
     import msal
@@ -38,11 +39,11 @@ class OAuth2IMAPRepository(EmailRepository):
     OAuth 2.0 access tokens for IMAP authentication. Tokens are cached locally
     to avoid repeated authentication prompts.
 
-    Configuration (via environment variables):
+    Configuration sources (in order of priority):
+        1. Environment variables (.env file) - for development
+        2. OAuth config file (config/oauth_config.json) - for production builds
         - AZURE_CLIENT_ID: Your Azure AD application (client) ID
         - AZURE_TENANT_ID: Your Azure AD tenant ID or "common" for multi-tenant
-        - SCOPES: IMAP.AccessAsUser.All scope for Office 365
-        - TOKEN_CACHE: Local file path for token persistence
     """
 
     # Required scope for IMAP access in Office 365
@@ -51,24 +52,31 @@ class OAuth2IMAPRepository(EmailRepository):
     # Token cache file location
     TOKEN_CACHE_FILE = "data/oauth_token_cache.json"
 
+    # OAuth config file location
+    OAUTH_CONFIG_FILE = "config/oauth_config.json"
+
     def __init__(self):
         """Initialize OAuth 2.0 IMAP repository"""
         self.imap: Optional[imaplib.IMAP4_SSL] = None
         self.logger = logging.getLogger(__name__)
 
-        # Load Azure AD credentials from environment
-        self.client_id = os.getenv('AZURE_CLIENT_ID')
-        tenant_id = os.getenv('AZURE_TENANT_ID', 'common')
+        # Load Azure AD credentials
+        self.client_id, tenant_id = self._load_azure_credentials()
 
         if not self.client_id:
             raise ValueError(
-                "AZURE_CLIENT_ID no está configurado en el archivo .env\n\n"
-                "Por favor:\n"
-                "1. Registra una aplicación en Azure AD Portal (https://portal.azure.com)\n"
-                "2. Copia el Application (client) ID\n"
-                "3. Agrégalo al archivo .env:\n"
-                "   AZURE_CLIENT_ID=tu-client-id-aqui\n\n"
-                "Consulta AZURE_APP_REGISTRATION.md para instrucciones detalladas."
+                "Azure AD no está configurado.\n\n"
+                "OPCIÓN 1 - Para desarrollo local:\n"
+                "  1. Crea un archivo .env en la raíz del proyecto\n"
+                "  2. Agrega: AZURE_CLIENT_ID=tu-client-id-aqui\n\n"
+                "OPCIÓN 2 - Para distribución (ejecutable):\n"
+                "  1. Copia config/oauth_config.example.json a config/oauth_config.json\n"
+                "  2. Edita oauth_config.json con tus credenciales de Azure AD\n"
+                "  3. Ejecuta python build.py para incluirlo en el ejecutable\n\n"
+                "Para obtener el Client ID:\n"
+                "  1. Ve a Azure Portal (https://portal.azure.com)\n"
+                "  2. Azure Active Directory → App registrations → New registration\n"
+                "  3. Copia el Application (client) ID"
             )
 
         # Build authority URL
@@ -88,6 +96,57 @@ class OAuth2IMAPRepository(EmailRepository):
             authority=self.authority,
             token_cache=self.token_cache
         )
+
+    def _load_azure_credentials(self) -> Tuple[Optional[str], str]:
+        """Load Azure AD credentials from config file or environment
+
+        Priority order:
+        1. Environment variables (.env) - for development
+        2. OAuth config file (config/oauth_config.json) - for production
+
+        Returns:
+            Tuple of (client_id, tenant_id)
+        """
+        client_id = None
+        tenant_id = 'common'
+
+        # Priority 1: Environment variables (.env file)
+        env_client_id = os.getenv('AZURE_CLIENT_ID')
+        env_tenant_id = os.getenv('AZURE_TENANT_ID', 'common')
+
+        if env_client_id:
+            self.logger.info("Loading Azure credentials from environment variables")
+            return env_client_id, env_tenant_id
+
+        # Priority 2: OAuth config file
+        # Try to find config file (works both in dev and PyInstaller bundle)
+        config_paths = [
+            Path(self.OAUTH_CONFIG_FILE),  # Development path
+            Path(sys._MEIPASS) / self.OAUTH_CONFIG_FILE if getattr(sys, 'frozen', False) else None,  # PyInstaller bundle
+        ]
+
+        for config_path in config_paths:
+            if config_path and config_path.exists():
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        config = json.load(f)
+
+                    if config.get('enabled', True):
+                        client_id = config.get('azure_client_id')
+                        tenant_id = config.get('azure_tenant_id', 'common')
+
+                        if client_id and client_id != 'TU_AZURE_CLIENT_ID_AQUI':
+                            self.logger.info(f"Loading Azure credentials from config file: {config_path}")
+                            return client_id, tenant_id
+
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"Error parsing OAuth config file: {e}")
+                except Exception as e:
+                    self.logger.error(f"Error reading OAuth config file: {e}")
+
+        # No credentials found
+        self.logger.warning("No Azure credentials found in environment or config file")
+        return None, tenant_id
 
     def _load_token_cache(self) -> msal.SerializableTokenCache:
         """Load token cache from file if it exists
