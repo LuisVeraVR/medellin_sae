@@ -49,7 +49,79 @@ Verifica que:
 - ✅ Puedes importar productos desde Excel
 - ✅ El procesamiento de facturas funciona
 
-### Paso 3: Crear el Ejecutable
+### Paso 3: Configurar Credenciales OAuth (Para Distribución)
+
+**⚠️ IMPORTANTE:** Si quieres distribuir el ejecutable/instalador a la operativa con las credenciales de Azure AD ya configuradas, sigue estos pasos:
+
+#### 3.1. Obtener Credenciales de Azure AD
+
+Si aún no tienes las credenciales:
+
+1. Ve a [Azure Portal](https://portal.azure.com)
+2. **Azure Active Directory** → **App registrations** → **New registration**
+3. Nombre: "Medellin SAE Production"
+4. Supported account types: "Accounts in any organizational directory"
+5. Redirect URI: Dejar en blanco (Device Code Flow)
+6. Clic en **Register**
+7. Copia el **Application (client) ID**
+8. Copia el **Directory (tenant) ID** (o usa "common" para multi-tenant)
+
+#### 3.2. Configurar en el Proyecto
+
+```bash
+# 1. Copiar el archivo de ejemplo
+cp config/oauth_config.example.json config/oauth_config.json
+
+# 2. Editar con tus credenciales
+# Windows:
+notepad config/oauth_config.json
+# Linux/Mac:
+nano config/oauth_config.json
+```
+
+#### 3.3. Editar oauth_config.json
+
+Reemplaza `TU_AZURE_CLIENT_ID_AQUI` con tu Client ID real:
+
+```json
+{
+  "azure_client_id": "12345678-1234-1234-1234-123456789abc",
+  "azure_tenant_id": "common",
+  "enabled": true,
+  "description": "Configuración OAuth 2.0 para Office 365"
+}
+```
+
+**Notas importantes:**
+- ✅ Este archivo se embebe en el ejecutable al hacer build
+- ✅ Los usuarios NO necesitan configurar nada
+- ✅ Solo necesitan autenticarse con su cuenta de Office 365
+- ⚠️ **NO** subas este archivo a Git (ya está en .gitignore)
+- ⚠️ Guarda una copia segura de este archivo
+
+#### 3.4. Verificar Configuración
+
+```bash
+# El archivo debe existir
+ls -l config/oauth_config.json  # Linux/Mac
+dir config\oauth_config.json    # Windows
+```
+
+#### Alternativa: Desarrollo Sin OAuth Config
+
+Si solo quieres probar en desarrollo local, puedes usar el archivo `.env`:
+
+```bash
+# Crear .env
+echo "AZURE_CLIENT_ID=tu-client-id" >> .env
+echo "AZURE_TENANT_ID=common" >> .env
+```
+
+**Diferencia:**
+- `.env` → Solo para desarrollo local
+- `oauth_config.json` → Se incluye en el ejecutable para distribución
+
+### Paso 4: Crear el Ejecutable
 
 Ejecuta el script de build que creará un archivo `.exe` independiente:
 
@@ -86,7 +158,24 @@ Next steps:
 
 El ejecutable estará en: `dist/MedellinSAE.exe`
 
-### Paso 4: Probar el Ejecutable
+**Nota sobre oauth_config.json:**
+
+Si el archivo `config/oauth_config.json` existe cuando ejecutas `build.py`, verás:
+```
+✓ Found oauth_config.json - will be included in executable
+  This allows the executable to work without .env configuration
+```
+
+Si no existe, verás:
+```
+⚠ oauth_config.json not found - executable will require .env setup
+  To include OAuth credentials in the executable:
+  1. Copy config/oauth_config.example.json to config/oauth_config.json
+  2. Edit oauth_config.json with your Azure AD credentials
+  3. Run build.py again
+```
+
+### Paso 5: Probar el Ejecutable
 
 Antes de crear el instalador, prueba el ejecutable:
 
@@ -97,15 +186,22 @@ MedellinSAE.exe
 
 Verifica que todo funciona igual que en modo desarrollo.
 
-### Paso 5: Crear el Instalador (Windows)
+**Probar OAuth:**
+1. Ve a Configuración
+2. Ingresa un email de Office 365
+3. Haz clic en "Autenticar con Office 365"
+4. Debería abrir el navegador automáticamente
+5. Si configuraste `oauth_config.json`, NO debería pedir configurar Azure
 
-#### 5.1. Instalar Inno Setup
+### Paso 6: Crear el Instalador (Windows)
+
+#### 6.1. Instalar Inno Setup
 
 1. Descarga Inno Setup 6: https://jrsoftware.org/isdl.php
 2. Ejecuta el instalador
 3. Instala con las opciones por defecto
 
-#### 5.2. Generar el Instalador
+#### 6.2. Generar el Instalador
 
 ```bash
 python create_installer.py

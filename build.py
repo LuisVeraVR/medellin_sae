@@ -56,6 +56,19 @@ def build():
     if icon_path.exists():
         args.append(f'--icon={icon_path}')
 
+    # Add OAuth config if available (for embedded credentials in production)
+    oauth_config_path = root_dir / "config" / "oauth_config.json"
+    if oauth_config_path.exists():
+        print(f"\n✓ Found oauth_config.json - will be included in executable")
+        print("  This allows the executable to work without .env configuration")
+    else:
+        print(f"\n⚠ oauth_config.json not found - executable will require .env setup")
+        print("  To include OAuth credentials in the executable:")
+        print("  1. Copy config/oauth_config.example.json to config/oauth_config.json")
+        print("  2. Edit oauth_config.json with your Azure AD credentials")
+        print("  3. Run build.py again")
+
+    print()
     print("=" * 60)
     print("Building MedellinSAE executable...")
     print("=" * 60)
