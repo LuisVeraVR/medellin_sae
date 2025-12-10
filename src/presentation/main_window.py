@@ -159,6 +159,7 @@ class MainWindow(QMainWindow):
         # Create config tab
         self.config_tab = ConfigTab(self.app_config)
         self.config_tab.config_changed.connect(self._on_config_changed)
+        self.config_tab.oauth_authentication_requested.connect(self._on_oauth_authentication_requested)
         self.tabs.addTab(self.config_tab, "Configuración")
 
         # Load credentials from env
@@ -346,6 +347,45 @@ class MainWindow(QMainWindow):
         """Handle configuration changes"""
         self.app_config.update(config)
         # TODO: Save config to file
+
+    def _on_oauth_authentication_requested(self, email: str) -> None:
+        """Handle OAuth authentication request from config tab"""
+        try:
+            # Import OAuth dialog
+            from src.presentation.widgets.oauth2_dialog import OAuth2Dialog
+
+            # Create OAuth repository
+            oauth_repo = OAuth2IMAPRepository()
+
+            # Show OAuth dialog
+            dialog = OAuth2Dialog(email, oauth_repo, self)
+            dialog.authentication_success.connect(
+                lambda authenticated_email: self.config_tab.update_oauth_status(True, authenticated_email)
+            )
+
+            result = dialog.exec()
+
+            if result == OAuth2Dialog.DialogCode.Accepted:
+                self.logger.info(f"OAuth authentication successful for {email}")
+                self.status_bar.showMessage(f"✓ Autenticado: {email}", 5000)
+            else:
+                self.logger.info("OAuth authentication cancelled")
+                self.config_tab.update_oauth_status(False)
+
+        except ValueError as e:
+            # Missing Azure credentials
+            QMessageBox.critical(
+                self,
+                "Configuración Faltante",
+                str(e)
+            )
+        except Exception as e:
+            self.logger.error(f"Error during OAuth authentication: {e}")
+            QMessageBox.critical(
+                self,
+                "Error de Autenticación",
+                f"Error al intentar autenticar:\n\n{str(e)}"
+            )
 
     def _restore_window_state(self) -> None:
         """Restore window state from settings"""
