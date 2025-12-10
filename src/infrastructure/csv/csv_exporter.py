@@ -68,7 +68,7 @@ class CSVExporter(CSVRepository):
 
         # Add Pulgarin-specific columns for product database lookup
         if is_pulgarin:
-            headers.extend(['Peso', 'U/M BD'])
+            headers.extend(['Peso', 'U/M BD', 'Valor Total'])
 
         # Write CSV with UTF-8-BOM encoding
         with open(filepath, 'w', newline='', encoding='utf-8-sig') as csvfile:
@@ -91,22 +91,29 @@ class CSVExporter(CSVRepository):
                                 # Cantidad Convertida = Cantidad Original × Peso
                                 cantidad_convertida = item.quantity * peso_decimal
 
-                                # Precio Unitario = Valor Total de la Línea ÷ Cantidad Convertida
-                                valor_total = item.get_total()
+                                # Precio Unitario = TaxableAmount (Valor sin IVA) ÷ Cantidad Convertida
+                                # TaxableAmount es el valor base antes de impuestos (<cbc:TaxableAmount>)
+                                valor_total = item.get_subtotal()  # Subtotal sin IVA
                                 if cantidad_convertida > 0:
                                     precio_unitario = valor_total / cantidad_convertida
                                 else:
                                     # Fallback to original if conversion fails
                                     cantidad_convertida = item.quantity
                                     precio_unitario = item.unit_price
+                                    valor_total = item.get_subtotal()
+
+                                # Format peso with client's decimal separator
+                                peso_str = self._format_decimal(peso_decimal, client)
                             except (ValueError, Decimal.InvalidOperation):
                                 # If conversion fails, use original values
                                 cantidad_convertida = item.quantity
                                 precio_unitario = item.unit_price
+                                valor_total = item.get_subtotal()
                         else:
                             # Product not found or no peso, use original values
                             cantidad_convertida = item.quantity
                             precio_unitario = item.unit_price
+                            valor_total = item.get_subtotal()
                             peso_str = ''
                             um_bd = ''
                     else:
@@ -141,7 +148,8 @@ class CSVExporter(CSVRepository):
 
                     # Add Pulgarin-specific product data from database
                     if is_pulgarin:
-                        row.extend([peso_str, um_bd])
+                        valor_total_str = self._format_decimal(valor_total, client)
+                        row.extend([peso_str, um_bd, valor_total_str])
 
                     writer.writerow(row)
 
