@@ -6,6 +6,8 @@ Aplicación de escritorio con PyQt6 para el procesamiento automático de factura
 
 - ✅ **Arquitectura Clean**: Separación clara de capas (Domain, Application, Infrastructure, Presentation)
 - ✅ **Multi-cliente**: Sistema de tabs para gestionar múltiples clientes
+- ✅ **Tab Productos Pulgarin**: Base de datos de productos con importación desde Excel
+- ✅ **Enriquecimiento CSV**: Agrega peso y U/M automáticamente a facturas de Pulgarin
 - ✅ **Tab Somex SFTP**: Conexión SFTP para descarga de archivos XML/ZIP
 - ✅ **Auto-actualización**: Actualización automática desde GitHub Releases
 - ✅ **Procesamiento IMAP**: Conexión a Outlook/Office365 vía IMAP
@@ -70,6 +72,39 @@ python run.py
 
 ## 📱 Tabs Disponibles
 
+### Tab Productos Pulgarin - Base de Datos de Productos
+
+El tab de Productos Pulgarin permite gestionar una base de datos de productos para enriquecer automáticamente las facturas procesadas.
+
+#### Características
+
+- **Importación Excel**: Importa productos desde archivos Excel (.xlsx, .xls)
+- **Validación automática**: Verifica que las columnas requeridas existan
+- **Normalización**: Hace matching inteligente ignorando mayúsculas y espacios extra
+- **Actualización**: Actualiza productos existentes o crea nuevos
+- **Visualización**: Tabla con todos los productos importados
+- **Búsqueda**: Busca productos por código o descripción
+
+#### Formato del Archivo Excel
+
+El archivo Excel debe contener las siguientes columnas (no importa mayúsculas/minúsculas):
+
+- **Codigo**: Código del producto (puede estar vacío)
+- **Descripcion**: Nombre/descripción del producto (requerido)
+- **PESO**: Peso del producto (requerido)
+- **U/M**: Unidad de medida (requerido)
+
+#### Enriquecimiento Automático
+
+Cuando se procesan facturas de Pulgarin, el sistema automáticamente:
+
+1. Busca cada producto por código o descripción
+2. Normaliza textos para mejor matching ("ARROZ  Blanco" coincide con "arroz blanco")
+3. Agrega columnas **Peso** y **U/M BD** al CSV generado
+4. Deja vacío si el producto no está en la base de datos
+
+Esto permite tener datos adicionales de productos directamente en el CSV de salida.
+
 ### Tab Somex - Gestión SFTP
 
 El tab Somex permite conectarse al servidor SFTP para descargar archivos XML/ZIP del cliente Somex.
@@ -126,6 +161,7 @@ medellin_sae/
 │       ├── widgets/        # Tabs y widgets
 │       │   ├── client_tab.py
 │       │   ├── somex_tab.py
+│       │   ├── pulgarin_products_tab.py  # NEW: Tab de productos
 │       │   ├── config_tab.py
 │       │   └── logs_tab.py
 │       └── main_window.py
@@ -133,12 +169,17 @@ medellin_sae/
 │   ├── clients.json        # Configuración de clientes
 │   └── app_config.json     # Configuración general
 ├── data/                   # Bases de datos SQLite
+│   └── app.db             # BD de productos Pulgarin
 ├── logs/                   # Logs de la aplicación
 ├── output/                 # CSVs generados
+├── installer_output/       # Instaladores generados
 ├── requirements.txt
 ├── version.txt
-├── build.py
+├── build.py               # Script de build con PyInstaller
+├── create_installer.py    # Script para crear instalador
+├── installer.iss          # Script de Inno Setup
 ├── run.py
+├── BUILD.md               # Guía de construcción
 └── README.md
 ```
 
@@ -194,7 +235,7 @@ Editar `config/app_config.json`:
 
 ## 📊 Formato CSV de Salida
 
-El CSV generado incluye 22 campos (separador `;`, encoding UTF-8-BOM):
+El CSV generado incluye 22 campos base (separador `;`, encoding UTF-8-BOM):
 
 - N° Factura
 - Nombre Producto
@@ -216,7 +257,18 @@ El CSV generado incluye 22 campos (separador `;`, encoding UTF-8-BOM):
 - Cantidad Original
 - Moneda
 
-## 🔨 Build Ejecutable
+### Columnas Adicionales para Pulgarin
+
+Cuando se procesan facturas de **Pulgarin**, se agregan 2 columnas adicionales:
+
+- **Peso**: Peso del producto desde la base de datos
+- **U/M BD**: Unidad de medida desde la base de datos
+
+Estas columnas se llenan automáticamente buscando el producto en la base de datos. Si el producto no se encuentra, las columnas quedan vacías.
+
+## 🔨 Build Ejecutable e Instalador
+
+### Crear Ejecutable
 
 Para crear un ejecutable independiente (Windows):
 
@@ -225,6 +277,33 @@ python build.py
 ```
 
 El ejecutable se generará en `dist/MedellinSAE.exe`
+
+### Crear Instalador Profesional
+
+Para crear un instalador de Windows con Inno Setup:
+
+1. Instala [Inno Setup 6](https://jrsoftware.org/isdl.php)
+2. Ejecuta:
+
+```bash
+python build.py
+python create_installer.py
+```
+
+El instalador se generará en `installer_output/MedellinSAE_Setup_v1.0.0.exe`
+
+### Documentación Completa
+
+Para instrucciones detalladas sobre cómo crear el ejecutable, instalador y distribuir la aplicación, consulta:
+
+**📘 [BUILD.md](BUILD.md)** - Guía completa de construcción e instalación
+
+El instalador incluye:
+- ✅ Instalación guiada en español/inglés
+- ✅ Accesos directos en menú de inicio y escritorio
+- ✅ Creación automática de directorios
+- ✅ Desinstalador completo
+- ✅ Detección de versiones
 
 ## 🔄 Auto-actualización
 
