@@ -1,15 +1,22 @@
 """CSV Exporter Implementation - Infrastructure Layer"""
 import csv
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from src.domain.entities.invoice import Invoice
 from src.domain.entities.client import Client
 from src.domain.repositories.csv_repository import CSVRepository
+from src.infrastructure.database.sqlite_repository import SQLiteRepository
 
 
 class CSVExporter(CSVRepository):
     """CSV export implementation"""
+
+    def __init__(self):
+        """Initialize CSV exporter with database repository for product lookup"""
+        # Initialize database repository for Pulgarin products
+        db_path = Path("data") / "app.db"
+        self.db_repo = SQLiteRepository(str(db_path))
 
     def export_invoice(self, invoice: Invoice, client: Client, output_path: str) -> str:
         """Export single invoice to CSV"""
@@ -28,6 +35,9 @@ class CSVExporter(CSVRepository):
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"{client.id}_invoices_{timestamp}.csv"
         filepath = output_dir / filename
+
+        # Check if this is Pulgarin client (needs product database lookup)
+        is_pulgarin = client.id.lower() == 'pulgarin'
 
         # CSV headers (as specified in requirements)
         headers = [
@@ -54,6 +64,10 @@ class CSVExporter(CSVRepository):
             'Cantidad Original',
             'Moneda'
         ]
+
+        # Add Pulgarin-specific columns for product database lookup
+        if is_pulgarin:
+            headers.extend(['Peso', 'U/M BD'])
 
         # Write CSV with UTF-8-BOM encoding
         with open(filepath, 'w', newline='', encoding='utf-8-sig') as csvfile:
@@ -86,9 +100,41 @@ class CSVExporter(CSVRepository):
                         self._format_decimal(item.quantity, client),  # Cantidad Original
                         invoice.currency  # 1=COP, 2=USD, 3=EUR
                     ]
+
+                    # Add Pulgarin-specific product data from database
+                    if is_pulgarin:
+                        peso, um_bd = self._lookup_pulgarin_product(item)
+                        row.extend([peso, um_bd])
+
                     writer.writerow(row)
 
         return str(filepath)
+
+    def _lookup_pulgarin_product(self, item) -> tuple:
+        """Lookup product in Pulgarin database and return (peso, um)
+
+        Args:
+            item: InvoiceItem to lookup
+
+        Returns:
+            Tuple of (peso, um) or ('', '') if not found
+        """
+        try:
+            # Try to find product by code or description
+            product = self.db_repo.find_product_by_code_or_description(
+                codigo=item.product_code if item.product_code else None,
+                descripcion=item.product_name
+            )
+
+            if product:
+                return (product.get('peso', ''), product.get('um', ''))
+            else:
+                # Product not found in database
+                return ('', '')
+
+        except Exception as e:
+            # In case of error, return empty values
+            return ('', '')
 
     def _format_decimal(self, value, client: Client, use_decimal_places: bool = True) -> str:
         """Format decimal according to client configuration"""

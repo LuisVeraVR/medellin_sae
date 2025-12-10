@@ -324,3 +324,72 @@ class SQLiteRepository(DatabaseRepository):
 
         conn.close()
         return count
+
+    @staticmethod
+    def normalize_text(text: str) -> str:
+        """Normalize text for comparison (remove extra spaces, lowercase, etc.)
+
+        Args:
+            text: Text to normalize
+
+        Returns:
+            Normalized text
+        """
+        if not text:
+            return ""
+        # Convert to lowercase, strip whitespace, replace multiple spaces with single space
+        normalized = ' '.join(text.lower().strip().split())
+        return normalized
+
+    def find_product_by_description(self, descripcion: str) -> Optional[dict]:
+        """Find a product by normalized description
+
+        Args:
+            descripcion: Product description to search for
+
+        Returns:
+            Product dictionary or None if not found
+        """
+        normalized_search = self.normalize_text(descripcion)
+
+        if not normalized_search:
+            return None
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Get all products and search by normalized description
+        cursor.execute(
+            'SELECT id, codigo, descripcion, peso, um, created_at, updated_at FROM pulgarin_products'
+        )
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        # Search for exact match in normalized descriptions
+        for row in rows:
+            if self.normalize_text(row['descripcion']) == normalized_search:
+                return dict(row)
+
+        return None
+
+    def find_product_by_code_or_description(self, codigo: Optional[str],
+                                           descripcion: str) -> Optional[dict]:
+        """Find a product by code (if provided) or by normalized description
+
+        Args:
+            codigo: Product code (optional)
+            descripcion: Product description
+
+        Returns:
+            Product dictionary or None if not found
+        """
+        # First try by code if provided
+        if codigo:
+            product = self.get_product_by_code(codigo)
+            if product:
+                return product
+
+        # Then try by description
+        return self.find_product_by_description(descripcion)
