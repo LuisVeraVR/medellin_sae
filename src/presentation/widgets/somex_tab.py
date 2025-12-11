@@ -189,35 +189,27 @@ class ProcessingWorker(QThread):
                         f"Excel consolidado creado: {excel_path}"
                     )
 
-                    # Subir Excel a /DocumentosProcesados en SFTP
+                    # Copiar Excel a carpeta ProcesadoCorreagro
                     try:
+                        procesado_dir = Path("ProcesadoCorreagro")
+                        procesado_dir.mkdir(exist_ok=True)
+
                         excel_filename = Path(excel_path).name
-                        remote_excel_path = f"/DocumentosProcesados/{excel_filename}"
+                        procesado_path = procesado_dir / excel_filename
+
+                        # Copiar archivo
+                        import shutil
+                        shutil.copy2(excel_path, procesado_path)
 
                         self.progress_update.emit(
-                            f"Subiendo Excel a SFTP: {excel_filename}..."
+                            f"✓ Excel copiado a: ProcesadoCorreagro/{excel_filename}"
                         )
+                        self.logger.info(f"Excel copied to {procesado_path}")
 
-                        upload_success, upload_msg = self.sftp_client.upload_file(
-                            excel_path,
-                            remote_excel_path
-                        )
-
-                        if upload_success:
-                            self.progress_update.emit(
-                                f"✓ Excel subido a /DocumentosProcesados/{excel_filename}"
-                            )
-                        else:
-                            self.logger.warning(
-                                f"No se pudo subir Excel: {upload_msg}"
-                            )
-                            self.progress_update.emit(
-                                f"⚠ No se pudo subir Excel al SFTP: {upload_msg}"
-                            )
                     except Exception as e:
-                        self.logger.error(f"Error subiendo Excel al SFTP: {e}")
+                        self.logger.error(f"Error copiando Excel a ProcesadoCorreagro: {e}")
                         self.progress_update.emit(
-                            f"⚠ Error subiendo Excel: {str(e)}"
+                            f"⚠ Error copiando Excel: {str(e)}"
                         )
 
                 except Exception as e:
