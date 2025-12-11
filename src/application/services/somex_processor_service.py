@@ -893,11 +893,12 @@ class SomexProcessorService:
             results['total_xmls'] = len(xml_files)
 
             for xml_filename, xml_content in xml_files:
-                # Check if already processed
-                if self.repository.is_xml_processed(xml_content):
-                    self.logger.info(f"Skipping already processed XML: {xml_filename}")
-                    results['skipped_xmls'] += 1
-                    continue
+                # NOTE: Validación de reprocesamiento deshabilitada a petición del usuario
+                # Permitir reprocesar todas las facturas
+                # if self.repository.is_xml_processed(xml_content):
+                #     self.logger.info(f"Skipping already processed XML: {xml_filename}")
+                #     results['skipped_xmls'] += 1
+                #     continue
 
                 # Parse XML
                 invoice_data = self.parse_invoice_xml(xml_content)
