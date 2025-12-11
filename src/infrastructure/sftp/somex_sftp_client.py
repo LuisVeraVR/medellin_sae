@@ -228,6 +228,54 @@ class SomexSftpClient:
             self.logger.error(error_msg)
             return False, error_msg
 
+    def download_items_catalog(self, local_path: str = "data/ListadoItems.xlsx") -> Tuple[bool, str]:
+        """
+        Descargar el catálogo de items desde /Items/ListadoItems
+
+        Args:
+            local_path: Ruta local donde guardar el archivo (por defecto data/ListadoItems.xlsx)
+
+        Returns:
+            Tupla (éxito, mensaje)
+        """
+        if not self.connected or not self.sftp_client:
+            return False, "No hay conexión SFTP activa"
+
+        try:
+            # Buscar archivo en /Items que contenga "ListadoItems"
+            items_dir = "/Items"
+            self.logger.info(f"Buscando archivo de items en {items_dir}")
+
+            try:
+                files = self.sftp_client.listdir(items_dir)
+                self.logger.info(f"Archivos en {items_dir}: {files}")
+
+                # Buscar archivo que contenga "ListadoItems"
+                items_file = None
+                for file in files:
+                    if "ListadoItems" in file or "listadoitems" in file.lower():
+                        items_file = file
+                        break
+
+                if not items_file:
+                    return False, f"No se encontró archivo de items en {items_dir}"
+
+                remote_path = f"{items_dir}/{items_file}"
+                self.logger.info(f"Descargando {remote_path}...")
+
+                # Descargar archivo
+                return self.download_file(remote_path, local_path)
+
+            except IOError as e:
+                error_msg = f"Error al acceder a {items_dir}: {str(e)}"
+                self.logger.error(error_msg)
+                return False, error_msg
+
+        except Exception as e:
+            error_msg = f"Error descargando catálogo de items: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+
     def get_file_info(self, remote_path: str) -> Optional[Dict[str, any]]:
         """
         Obtener información de un archivo específico

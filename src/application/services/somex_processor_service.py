@@ -517,8 +517,32 @@ class SomexProcessorService:
             quantity_str = self._get_text(line_element, './/cbc:InvoicedQuantity')
             quantity_original = Decimal(quantity_str) if quantity_str else Decimal('0')
 
-            # Extract kilos from product name
-            kilos = self._extract_kilos_from_name(product_name)
+            # Try to extract kilos from database item description first
+            kilos = None
+            item_description = None
+            if product_code and self.repository:
+                item_data = self.repository.get_item_by_code(product_code)
+                if item_data:
+                    item_description = item_data.get('descripcion', '')
+                    self.logger.debug(
+                        f"Found item in DB: code={product_code}, desc={item_description}"
+                    )
+                    kilos = self._extract_kilos_from_name(item_description)
+                    if kilos:
+                        self.logger.info(
+                            f"Extracted {kilos} kilos from DB description for code {product_code}"
+                        )
+
+            # Fallback to extracting kilos from XML product name
+            if not kilos:
+                self.logger.debug(
+                    f"No kilos found in DB for code {product_code}, trying XML product name"
+                )
+                kilos = self._extract_kilos_from_name(product_name)
+                if kilos:
+                    self.logger.info(
+                        f"Extracted {kilos} kilos from XML product name"
+                    )
 
             # Calculate adjusted quantity (quantity * kilos)
             if kilos:
@@ -529,8 +553,8 @@ class SomexProcessorService:
             else:
                 quantity_adjusted = quantity_original
                 self.logger.warning(
-                    f"Could not extract kilos from '{product_name}', "
-                    f"using original quantity"
+                    f"Could not extract kilos for product code '{product_code}' "
+                    f"(name: '{product_name}'), using original quantity"
                 )
 
             # Taxable amount (subtotal before tax)
@@ -557,6 +581,10 @@ class SomexProcessorService:
                 Decimal(tax_percent_str) if tax_percent_str else Decimal('0')
             )
 
+            # Calculate line total (taxable amount + tax)
+            tax_amount = taxable_amount * (tax_percentage / Decimal('100'))
+            line_total = taxable_amount + tax_amount
+
             return {
                 'product_name': product_name or "",
                 'product_code': product_code or "SPN-1",  # Default code
@@ -567,6 +595,8 @@ class SomexProcessorService:
                 'unit_price': unit_price,
                 'tax_percentage': tax_percentage,
                 'taxable_amount': taxable_amount,
+                'tax_amount': tax_amount,
+                'line_total': line_total,  # Total de la línea
             }
 
         except Exception as e:
@@ -727,7 +757,8 @@ class SomexProcessorService:
             "Bodega",
             "Incentivo",
             "Cantidad Original (5 decimales - separdor coma)",
-            "Moneda (1,2,3)"
+            "Moneda (1,2,3)",
+            "Valor Total Línea (5 decimales - separador coma)"
         ]
 
         # Write headers with formatting
@@ -802,6 +833,11 @@ class SomexProcessorService:
             )
 
             ws.cell(row=row_num, column=22).value = ""  # Moneda
+
+            # Valor Total Línea (5 decimales - separador coma)
+            ws.cell(row=row_num, column=23).value = self.format_decimal(
+                item.get('line_total', Decimal('0'))
+            )
 
             row_num += 1
 
@@ -961,7 +997,8 @@ class SomexProcessorService:
             "Bodega",
             "Incentivo",
             "Cantidad Original (5 decimales - separdor coma)",
-            "Moneda (1,2,3)"
+            "Moneda (1,2,3)",
+            "Valor Total Línea (5 decimales - separador coma)"
         ]
 
         # Write headers with formatting
@@ -1060,6 +1097,11 @@ class SomexProcessorService:
 
                 # Moneda (1,2,3) - siempre 1
                 ws.cell(row=row_num, column=22).value = "1"
+
+                # Valor Total Línea (5 decimales - separador coma)
+                ws.cell(row=row_num, column=23).value = self.format_decimal(
+                    item.get('line_total', Decimal('0'))
+                )
 
                 row_num += 1
 
