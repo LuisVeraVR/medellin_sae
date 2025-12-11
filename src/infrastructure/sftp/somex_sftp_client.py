@@ -276,6 +276,113 @@ class SomexSftpClient:
             self.logger.error(error_msg)
             return False, error_msg
 
+    def upload_file(self, local_path: str, remote_path: str) -> Tuple[bool, str]:
+        """
+        Subir un archivo al servidor SFTP
+
+        Args:
+            local_path: Ruta del archivo local
+            remote_path: Ruta donde guardar el archivo remotamente
+
+        Returns:
+            Tupla (éxito, mensaje)
+        """
+        if not self.connected or not self.sftp_client:
+            return False, "No hay conexión SFTP activa"
+
+        try:
+            # Verificar que el archivo local existe
+            if not Path(local_path).exists():
+                return False, f"El archivo local no existe: {local_path}"
+
+            # Crear directorio remoto si no existe
+            remote_dir = os.path.dirname(remote_path)
+            if remote_dir and remote_dir != '/':
+                try:
+                    self.sftp_client.stat(remote_dir)
+                except IOError:
+                    # El directorio no existe, intentar crearlo
+                    try:
+                        self.sftp_client.mkdir(remote_dir)
+                        self.logger.info(f"Directorio remoto creado: {remote_dir}")
+                    except IOError as e:
+                        self.logger.warning(
+                            f"No se pudo crear directorio {remote_dir}: {e}. "
+                            f"Intentando subir de todos modos..."
+                        )
+
+            # Subir archivo
+            self.sftp_client.put(local_path, remote_path)
+
+            success_msg = f"Archivo subido: {local_path} -> {remote_path}"
+            self.logger.info(success_msg)
+            return True, success_msg
+
+        except IOError as e:
+            error_msg = f"Error al subir archivo: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+        except Exception as e:
+            error_msg = f"Error inesperado al subir: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+
+    def move_to_processed(
+        self,
+        remote_filename: str,
+        source_dir: str = "/DocumentosPendientes",
+        dest_dir: str = "/DocumentosProcesados"
+    ) -> Tuple[bool, str]:
+        """
+        Mover un archivo de la carpeta de pendientes a procesados
+
+        Args:
+            remote_filename: Nombre del archivo a mover
+            source_dir: Directorio origen (por defecto /DocumentosPendientes)
+            dest_dir: Directorio destino (por defecto /DocumentosProcesados)
+
+        Returns:
+            Tupla (éxito, mensaje)
+        """
+        if not self.connected or not self.sftp_client:
+            return False, "No hay conexión SFTP activa"
+
+        try:
+            source_path = f"{source_dir}/{remote_filename}"
+            dest_path = f"{dest_dir}/{remote_filename}"
+
+            # Verificar que el archivo origen existe
+            try:
+                self.sftp_client.stat(source_path)
+            except IOError:
+                return False, f"El archivo origen no existe: {source_path}"
+
+            # Crear directorio destino si no existe
+            try:
+                self.sftp_client.stat(dest_dir)
+            except IOError:
+                try:
+                    self.sftp_client.mkdir(dest_dir)
+                    self.logger.info(f"Directorio creado: {dest_dir}")
+                except IOError as e:
+                    return False, f"No se pudo crear directorio {dest_dir}: {str(e)}"
+
+            # Mover archivo (renombrar)
+            self.sftp_client.rename(source_path, dest_path)
+
+            success_msg = f"Archivo movido: {source_path} -> {dest_path}"
+            self.logger.info(success_msg)
+            return True, success_msg
+
+        except IOError as e:
+            error_msg = f"Error al mover archivo: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+        except Exception as e:
+            error_msg = f"Error inesperado al mover archivo: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+
     def get_file_info(self, remote_path: str) -> Optional[Dict[str, any]]:
         """
         Obtener información de un archivo específico
