@@ -224,6 +224,10 @@ class SomexProcessorService:
                 if not attached_invoice_number:
                     attached_invoice_number = self._get_text(tree, './/cbc:ParentDocumentID')
 
+                # Format invoice number (e.g., 2B286170 -> 2B-286170)
+                if attached_invoice_number:
+                    attached_invoice_number = self._format_invoice_number(attached_invoice_number)
+
                 self.logger.info(f"Invoice number from AttachedDocument: {attached_invoice_number}")
 
                 # Extract buyer data from ReceiverParty in AttachedDocument
@@ -354,6 +358,10 @@ class SomexProcessorService:
             if not invoice_number:
                 # Fallback to main ID if no OrderReference
                 invoice_number = self._get_text(tree, './/cbc:ID')
+
+            # Format invoice number (e.g., 2B286170 -> 2B-286170)
+            if invoice_number:
+                invoice_number = self._format_invoice_number(invoice_number)
 
             # Extract dates
             invoice_date = self._get_text(tree, './/cbc:IssueDate')
@@ -617,6 +625,38 @@ class SomexProcessorService:
         if result is not None and result.text:
             return result.text.strip()
         return ""
+
+    def _format_invoice_number(self, invoice_number: str) -> str:
+        """
+        Format invoice number by adding a hyphen after the initial number+letter pattern
+        Example: 2B286170 -> 2B-286170
+
+        Args:
+            invoice_number: Raw invoice number
+
+        Returns:
+            Formatted invoice number with hyphen
+        """
+        import re
+
+        if not invoice_number:
+            return invoice_number
+
+        # Pattern: starts with digit(s) followed by letter(s), then remaining characters
+        # Match: one or more digits, followed by one or more letters
+        pattern = r'^(\d+[A-Za-z]+)(.+)$'
+        match = re.match(pattern, invoice_number)
+
+        if match:
+            prefix = match.group(1)  # e.g., "2B"
+            suffix = match.group(2)  # e.g., "286170"
+            formatted = f"{prefix}-{suffix}"
+            self.logger.info(f"Formatted invoice number: {invoice_number} -> {formatted}")
+            return formatted
+
+        # If pattern doesn't match, return as-is
+        self.logger.debug(f"Invoice number {invoice_number} doesn't match format pattern, returning as-is")
+        return invoice_number
 
     def format_decimal(self, value: Decimal, decimals: int = 5) -> str:
         """Format decimal with specified decimals and comma separator"""
