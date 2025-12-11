@@ -140,29 +140,6 @@ class ProcessingWorker(QThread):
                     # Acumular facturas
                     all_invoices.extend(results['invoices'])
 
-                    # Mover archivo procesado a /DocumentosProcesados
-                    try:
-                        move_success, move_msg = self.sftp_client.move_to_processed(
-                            zip_filename,
-                            source_dir=self.remote_dir
-                        )
-                        if move_success:
-                            self.progress_update.emit(
-                                f"✓ {zip_filename} movido a /DocumentosProcesados"
-                            )
-                        else:
-                            self.logger.warning(
-                                f"No se pudo mover {zip_filename}: {move_msg}"
-                            )
-                            self.progress_update.emit(
-                                f"⚠ No se pudo mover {zip_filename} a procesados: {move_msg}"
-                            )
-                    except Exception as e:
-                        self.logger.error(f"Error moviendo {zip_filename}: {e}")
-                        self.progress_update.emit(
-                            f"⚠ Error moviendo {zip_filename}: {str(e)}"
-                        )
-
                     # Limpiar archivo temporal
                     Path(tmp_path).unlink(missing_ok=True)
 
@@ -211,6 +188,37 @@ class ProcessingWorker(QThread):
                     self.progress_update.emit(
                         f"Excel consolidado creado: {excel_path}"
                     )
+
+                    # Subir Excel a /DocumentosProcesados en SFTP
+                    try:
+                        excel_filename = Path(excel_path).name
+                        remote_excel_path = f"/DocumentosProcesados/{excel_filename}"
+
+                        self.progress_update.emit(
+                            f"Subiendo Excel a SFTP: {excel_filename}..."
+                        )
+
+                        upload_success, upload_msg = self.sftp_client.upload_file(
+                            excel_path,
+                            remote_excel_path
+                        )
+
+                        if upload_success:
+                            self.progress_update.emit(
+                                f"✓ Excel subido a /DocumentosProcesados/{excel_filename}"
+                            )
+                        else:
+                            self.logger.warning(
+                                f"No se pudo subir Excel: {upload_msg}"
+                            )
+                            self.progress_update.emit(
+                                f"⚠ No se pudo subir Excel al SFTP: {upload_msg}"
+                            )
+                    except Exception as e:
+                        self.logger.error(f"Error subiendo Excel al SFTP: {e}")
+                        self.progress_update.emit(
+                            f"⚠ Error subiendo Excel: {str(e)}"
+                        )
 
                 except Exception as e:
                     self.logger.error(f"Error generando Excel consolidado: {e}")
