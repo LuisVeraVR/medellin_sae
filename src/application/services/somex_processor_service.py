@@ -17,12 +17,17 @@ from src.infrastructure.sftp.somex_sftp_client import SomexSftpClient
 class ItemsImporter:
     """Helper class to import items from Excel file"""
 
-    def __init__(self, logger: logging.Logger):
+    def __init__(self, logger: logging.Logger, repository: Optional[SomexRepository] = None):
         self.logger = logger
+        self.repository = repository
 
-    def import_items_from_excel(self, excel_path: str) -> List[Dict[str, Any]]:
+    def import_items_from_excel(
+        self,
+        excel_path: str,
+        save_to_db: bool = True
+    ) -> List[Dict[str, Any]]:
         """
-        Import items from Excel file
+        Import items from Excel file and optionally save to database
 
         Expected columns:
         CodigoItem, Referencia, Descripcion, IdPlan, DescPlan,
@@ -30,6 +35,7 @@ class ItemsImporter:
 
         Args:
             excel_path: Path to Excel file
+            save_to_db: If True and repository is available, save items to database
 
         Returns:
             List of item dictionaries
@@ -83,6 +89,12 @@ class ItemsImporter:
             wb.close()
 
             self.logger.info(f"Imported {len(items)} items from Excel")
+
+            # Save items to database if requested
+            if save_to_db and self.repository and items:
+                self.logger.info(f"Saving {len(items)} items to database...")
+                saved_count = self.repository.save_items_bulk(items)
+                self.logger.info(f"Successfully saved {saved_count} items to database")
 
         except Exception as e:
             self.logger.error(f"Error importing items from Excel: {e}")

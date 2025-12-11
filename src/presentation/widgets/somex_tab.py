@@ -310,7 +310,10 @@ class SomexTab(QWidget):
             logger=self.logger,
             output_dir="output/somex"
         )
-        self.items_importer = ItemsImporter(logger=self.logger)
+        self.items_importer = ItemsImporter(
+            logger=self.logger,
+            repository=self.repository
+        )
 
         self._init_ui()
 
@@ -810,7 +813,7 @@ class SomexTab(QWidget):
             return  # Usuario canceló
 
         try:
-            # Importar items
+            # Importar items (se guardan automáticamente en BD)
             self.progress_text.append(f"Importando items desde: {excel_path}")
 
             items = self.items_importer.import_items_from_excel(excel_path)
@@ -826,8 +829,8 @@ class SomexTab(QWidget):
                 )
                 return
 
-            # Guardar en base de datos
-            count = self.repository.save_items_bulk(items)
+            # Los items ya fueron guardados automáticamente en la BD
+            count = len(items)
 
             # Actualizar status
             self.items_status_label.setText(
