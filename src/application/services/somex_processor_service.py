@@ -12,6 +12,7 @@ from datetime import datetime
 
 from src.infrastructure.database.somex_repository import SomexRepository
 from src.infrastructure.sftp.somex_sftp_client import SomexSftpClient
+from src.infrastructure.pdf.somex_pdf_parser import SomexPDFParser
 
 
 class ItemsImporter:
@@ -123,6 +124,7 @@ class SomexProcessorService:
         self.logger = logger
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.pdf_parser = SomexPDFParser(logger=logger)
 
     def extract_xmls_from_zip(self, zip_path: str) -> List[Tuple[str, bytes]]:
         """
@@ -167,6 +169,85 @@ class SomexProcessorService:
 
         return xml_files
 
+    def extract_pdfs_from_zip(self, zip_path: str) -> List[Tuple[str, bytes]]:
+        """
+        Extract PDF files from a ZIP archive
+
+        Args:
+            zip_path: Path to ZIP file
+
+        Returns:
+            List of tuples (filename, pdf_content)
+        """
+        pdf_files = []
+
+        try:
+            self.logger.info(f"Opening ZIP file: {zip_path}")
+
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                all_files = zip_ref.namelist()
+                self.logger.info(f"Files in ZIP: {all_files}")
+
+                for file_info in zip_ref.filelist:
+                    self.logger.debug(f"Checking file: {file_info.filename}")
+
+                    if file_info.filename.lower().endswith('.pdf'):
+                        self.logger.info(f"Reading PDF: {file_info.filename}")
+                        pdf_content = zip_ref.read(file_info.filename)
+                        self.logger.info(
+                            f"PDF content size: {len(pdf_content)} bytes"
+                        )
+                        pdf_files.append((file_info.filename, pdf_content))
+
+            self.logger.info(
+                f"Extracted {len(pdf_files)} PDF files from {Path(zip_path).name}"
+            )
+
+        except zipfile.BadZipFile as e:
+            self.logger.error(f"Invalid ZIP file {zip_path}: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Error extracting PDFs from ZIP {zip_path}: {e}")
+            raise
+
+        return pdf_files
+
+    def extract_pdfs_from_zip_bytes(
+        self,
+        zip_content: bytes,
+        zip_filename: str
+    ) -> List[Tuple[str, bytes]]:
+        """
+        Extract PDF files from ZIP bytes
+
+        Args:
+            zip_content: ZIP file content as bytes
+            zip_filename: Name of the ZIP file
+
+        Returns:
+            List of tuples (filename, pdf_content)
+        """
+        pdf_files = []
+
+        try:
+            with zipfile.ZipFile(io.BytesIO(zip_content), 'r') as zip_ref:
+                for file_info in zip_ref.filelist:
+                    if file_info.filename.lower().endswith('.pdf'):
+                        pdf_content = zip_ref.read(file_info.filename)
+                        pdf_files.append((file_info.filename, pdf_content))
+
+            self.logger.info(
+                f"Extracted {len(pdf_files)} PDF files from {zip_filename}"
+            )
+
+        except Exception as e:
+            self.logger.error(
+                f"Error extracting PDFs from ZIP {zip_filename}: {e}"
+            )
+            raise
+
+        return pdf_files
+
     def extract_xmls_from_zip_bytes(
         self,
         zip_content: bytes,
@@ -202,6 +283,34 @@ class SomexProcessorService:
             raise
 
         return xml_files
+
+    def parse_invoice_pdf(self, pdf_content: bytes) -> Optional[Dict[str, Any]]:
+        """
+        Parse invoice PDF and extract required data
+
+        Args:
+            pdf_content: PDF content as bytes
+
+        Returns:
+            Dictionary with invoice data
+        """
+        try:
+            self.logger.info(f"Parsing PDF content ({len(pdf_content)} bytes)")
+            invoice_data = self.pdf_parser.parse_invoice_pdf(pdf_content)
+
+            if invoice_data:
+                self.logger.info(
+                    f"Parsed PDF invoice {invoice_data['invoice_number']} "
+                    f"with {len(invoice_data['items'])} items"
+                )
+            else:
+                self.logger.error("Failed to parse PDF")
+
+            return invoice_data
+
+        except Exception as e:
+            self.logger.error(f"Error parsing PDF: {e}", exc_info=True)
+            return None
 
     def parse_invoice_xml(self, xml_content: bytes) -> Optional[Dict[str, Any]]:
         """
@@ -866,7 +975,7 @@ class SomexProcessorService:
         zip_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Process a ZIP file: extract XMLs and parse them
+        Process a ZIP file: extract XMLs and PDFs and parse them
 
         Args:
             zip_path: Path to ZIP file
@@ -881,9 +990,12 @@ class SomexProcessorService:
         results = {
             'zip_filename': zip_filename,
             'total_xmls': 0,
+            'total_pdfs': 0,
             'processed_xmls': 0,
+            'processed_pdfs': 0,
             'skipped_xmls': 0,
             'failed_xmls': 0,
+            'failed_pdfs': 0,
             'invoices': []  # List of parsed invoice data
         }
 
@@ -912,12 +1024,41 @@ class SomexProcessorService:
                 invoice_data['xml_filename'] = xml_filename
                 invoice_data['xml_content'] = xml_content
                 invoice_data['zip_filename'] = zip_filename
+                invoice_data['source_type'] = 'xml'
 
                 results['invoices'].append(invoice_data)
                 results['processed_xmls'] += 1
 
                 self.logger.info(
                     f"Parsed XML {xml_filename}: "
+                    f"Invoice {invoice_data.get('invoice_number', 'N/A')} "
+                    f"with {len(invoice_data.get('items', []))} items"
+                )
+
+            # Extract PDFs from ZIP
+            pdf_files = self.extract_pdfs_from_zip(zip_path)
+            results['total_pdfs'] = len(pdf_files)
+
+            for pdf_filename, pdf_content in pdf_files:
+                # Parse PDF
+                invoice_data = self.parse_invoice_pdf(pdf_content)
+
+                if not invoice_data:
+                    self.logger.warning(f"Failed to parse PDF: {pdf_filename}")
+                    results['failed_pdfs'] += 1
+                    continue
+
+                # Add metadata to invoice data
+                invoice_data['xml_filename'] = pdf_filename  # Keep same field name for compatibility
+                invoice_data['xml_content'] = pdf_content   # Keep same field name for compatibility
+                invoice_data['zip_filename'] = zip_filename
+                invoice_data['source_type'] = 'pdf'
+
+                results['invoices'].append(invoice_data)
+                results['processed_pdfs'] += 1
+
+                self.logger.info(
+                    f"Parsed PDF {pdf_filename}: "
                     f"Invoice {invoice_data.get('invoice_number', 'N/A')} "
                     f"with {len(invoice_data.get('items', []))} items"
                 )
@@ -929,10 +1070,12 @@ class SomexProcessorService:
         self.logger.info(
             f"=== process_zip_file summary for {zip_filename} ==="
         )
+        self.logger.info(f"Total XMLs: {results['total_xmls']}, Total PDFs: {results['total_pdfs']}")
         self.logger.info(f"Total invoices parsed: {len(results['invoices'])}")
         for inv in results['invoices']:
+            source = inv.get('source_type', 'unknown').upper()
             self.logger.info(
-                f"  - {inv.get('invoice_number', 'N/A')}: "
+                f"  - [{source}] {inv.get('invoice_number', 'N/A')}: "
                 f"{len(inv.get('items', []))} items"
             )
 

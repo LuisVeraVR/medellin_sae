@@ -171,26 +171,27 @@ class SomexSftpClient:
 
     def list_xml_files(self, remote_path: str = ".") -> List[Dict[str, any]]:
         """
-        Listar solo archivos XML y ZIP en un directorio remoto
+        Listar archivos XML, PDF y ZIP en un directorio remoto
 
         Args:
             remote_path: Ruta del directorio remoto
 
         Returns:
-            Lista de diccionarios con información de archivos XML/ZIP
+            Lista de diccionarios con información de archivos XML/PDF/ZIP
         """
         all_files = self.list_files(remote_path)
 
-        # Filtrar solo archivos XML y ZIP
+        # Filtrar archivos XML, PDF y ZIP
         xml_files = [
             f for f in all_files
             if not f['is_dir'] and (
                 f['name'].lower().endswith('.xml') or
+                f['name'].lower().endswith('.pdf') or
                 f['name'].lower().endswith('.zip')
             )
         ]
 
-        self.logger.info(f"Encontrados {len(xml_files)} archivos XML/ZIP")
+        self.logger.info(f"Encontrados {len(xml_files)} archivos XML/PDF/ZIP")
         return xml_files
 
     def download_file(self, remote_path: str, local_path: str) -> Tuple[bool, str]:

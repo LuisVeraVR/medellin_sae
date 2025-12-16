@@ -353,7 +353,7 @@ class SomexTab(QWidget):
         layout = QVBoxLayout()
 
         # Título
-        title_label = QLabel("<h2>Somex - Descarga de XML vía SFTP</h2>")
+        title_label = QLabel("<h2>Somex - Descarga de XML/PDF vía SFTP</h2>")
         layout.addWidget(title_label)
 
         # Grupo de configuración
@@ -385,7 +385,7 @@ class SomexTab(QWidget):
         connection_layout = QVBoxLayout()
 
         # Botón de conectar
-        self.connect_btn = QPushButton("Conectar y Listar XML")
+        self.connect_btn = QPushButton("Conectar y Listar XML/PDF")
         self.connect_btn.clicked.connect(self._on_connect_clicked)
         connection_layout.addWidget(self.connect_btn)
 
@@ -402,7 +402,7 @@ class SomexTab(QWidget):
         layout.addWidget(connection_group)
 
         # Grupo de archivos
-        files_group = QGroupBox("Archivos XML/ZIP Disponibles")
+        files_group = QGroupBox("Archivos XML/PDF/ZIP Disponibles")
         files_layout = QVBoxLayout()
 
         # Tabla de archivos
@@ -484,9 +484,9 @@ class SomexTab(QWidget):
         desc_label = QLabel(
             "<b>Procesar automáticamente todos los ZIPs en /DocumentosPendientes:</b><br>"
             "- Descarga ZIPs desde el servidor SFTP<br>"
-            "- Extrae XMLs de cada ZIP<br>"
+            "- Extrae XMLs y PDFs de cada ZIP<br>"
             "- <b>Genera UN SOLO archivo Excel consolidado</b> con todas las facturas<br>"
-            "- Evita reprocesar XMLs ya procesados"
+            "- Soporta facturas en formato XML y PDF"
         )
         desc_label.setWordWrap(True)
         auto_layout.addWidget(desc_label)
@@ -605,7 +605,13 @@ class SomexTab(QWidget):
             self.files_table.setItem(row, 2, date_item)
 
             # Tipo de archivo
-            file_type = "ZIP" if file_info['name'].lower().endswith('.zip') else "XML"
+            file_name_lower = file_info['name'].lower()
+            if file_name_lower.endswith('.zip'):
+                file_type = "ZIP"
+            elif file_name_lower.endswith('.pdf'):
+                file_type = "PDF"
+            else:
+                file_type = "XML"
             type_item = QTableWidgetItem(file_type)
             type_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.files_table.setItem(row, 3, type_item)
@@ -645,7 +651,7 @@ class SomexTab(QWidget):
             self,
             "Guardar Archivo",
             default_path,
-            "XML Files (*.xml);;ZIP Files (*.zip);;All Files (*.*)"
+            "XML Files (*.xml);;PDF Files (*.pdf);;ZIP Files (*.zip);;All Files (*.*)"
         )
 
         if not local_path:
@@ -730,10 +736,10 @@ class SomexTab(QWidget):
             "¿Desea procesar todos los archivos ZIP en /DocumentosPendientes?\n\n"
             "Esta operación:\n"
             "- Descargará todos los ZIPs del servidor\n"
-            "- Extraerá los XMLs contenidos\n"
-            "- Generará archivos Excel\n"
+            "- Extraerá los XMLs y PDFs contenidos\n"
+            "- Generará archivos Excel consolidados\n"
             "- Puede tomar varios minutos\n\n"
-            "Los XMLs ya procesados serán omitidos automáticamente.",
+            "El sistema procesará tanto facturas XML como PDF.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
