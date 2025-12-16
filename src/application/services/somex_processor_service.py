@@ -17,12 +17,17 @@ from src.infrastructure.sftp.somex_sftp_client import SomexSftpClient
 class ItemsImporter:
     """Helper class to import items from Excel file"""
 
-    def __init__(self, logger: logging.Logger):
+    def __init__(self, logger: logging.Logger, repository: Optional[SomexRepository] = None):
         self.logger = logger
+        self.repository = repository
 
-    def import_items_from_excel(self, excel_path: str) -> List[Dict[str, Any]]:
+    def import_items_from_excel(
+        self,
+        excel_path: str,
+        save_to_db: bool = True
+    ) -> List[Dict[str, Any]]:
         """
-        Import items from Excel file
+        Import items from Excel file and optionally save to database
 
         Expected columns:
         CodigoItem, Referencia, Descripcion, IdPlan, DescPlan,
@@ -30,6 +35,7 @@ class ItemsImporter:
 
         Args:
             excel_path: Path to Excel file
+            save_to_db: If True and repository is available, save items to database
 
         Returns:
             List of item dictionaries
@@ -83,6 +89,12 @@ class ItemsImporter:
             wb.close()
 
             self.logger.info(f"Imported {len(items)} items from Excel")
+
+            # Save items to database if requested
+            if save_to_db and self.repository and items:
+                self.logger.info(f"Saving {len(items)} items to database...")
+                saved_count = self.repository.save_items_bulk(items)
+                self.logger.info(f"Successfully saved {saved_count} items to database")
 
         except Exception as e:
             self.logger.error(f"Error importing items from Excel: {e}")
@@ -209,9 +221,42 @@ class SomexProcessorService:
             # Log root tag
             self.logger.info(f"XML root tag: {tree.tag}")
 
+            # Variables to store AttachedDocument data
+            attached_invoice_number = None
+            attached_buyer_nit = None
+            attached_buyer_name = None
+
             # Check if this is an AttachedDocument with embedded Invoice
             if 'AttachedDocument' in tree.tag:
-                self.logger.info("Detected AttachedDocument, extracting embedded Invoice")
+                self.logger.info("Detected AttachedDocument, extracting data from it")
+
+                # Extract invoice number from AttachedDocument
+                # Try cbc:ID first, then cbc:ParentDocumentID
+                attached_invoice_number = self._get_text(tree, './/cbc:ID')
+                if not attached_invoice_number:
+                    attached_invoice_number = self._get_text(tree, './/cbc:ParentDocumentID')
+
+                # Format invoice number (e.g., 2B286170 -> 2B-286170)
+                if attached_invoice_number:
+                    attached_invoice_number = self._format_invoice_number(attached_invoice_number)
+
+                self.logger.info(f"Invoice number from AttachedDocument: {attached_invoice_number}")
+
+                # Extract buyer data from ReceiverParty in AttachedDocument
+                receiver_party = tree.find('.//cac:ReceiverParty', self.NAMESPACES)
+                if receiver_party is not None:
+                    attached_buyer_nit = self._get_text(
+                        receiver_party, './/cac:PartyTaxScheme/cbc:CompanyID'
+                    )
+                    attached_buyer_name = self._get_text(
+                        receiver_party, './/cac:PartyTaxScheme/cbc:RegistrationName'
+                    )
+                    self.logger.info(
+                        f"Buyer from AttachedDocument: NIT={attached_buyer_nit}, "
+                        f"Name={attached_buyer_name}"
+                    )
+
+                # Now extract embedded Invoice
                 tree = self._extract_embedded_invoice(tree)
 
                 if tree is None:
@@ -223,8 +268,31 @@ class SomexProcessorService:
             # Extract invoice data using Somex-specific rules
             invoice_data = self._parse_somex_invoice(tree)
 
+            # Override with AttachedDocument data if available
+            if invoice_data and attached_invoice_number:
+                self.logger.info(
+                    f"Overriding invoice number: {invoice_data.get('invoice_number')} "
+                    f"-> {attached_invoice_number}"
+                )
+                invoice_data['invoice_number'] = attached_invoice_number
+
+            if invoice_data and attached_buyer_nit:
+                self.logger.info(
+                    f"Overriding buyer NIT: {invoice_data.get('buyer_nit')} "
+                    f"-> {attached_buyer_nit}"
+                )
+                invoice_data['buyer_nit'] = attached_buyer_nit
+
+            if invoice_data and attached_buyer_name:
+                self.logger.info(
+                    f"Overriding buyer name: {invoice_data.get('buyer_name')} "
+                    f"-> {attached_buyer_name}"
+                )
+                invoice_data['buyer_name'] = attached_buyer_name
+
             if invoice_data:
-                self.logger.info(f"Invoice number: {invoice_data['invoice_number']}")
+                self.logger.info(f"Final invoice number: {invoice_data['invoice_number']}")
+                self.logger.info(f"Final buyer: {invoice_data['buyer_nit']} - {invoice_data['buyer_name']}")
 
             return invoice_data
 
@@ -302,6 +370,10 @@ class SomexProcessorService:
             if not invoice_number:
                 # Fallback to main ID if no OrderReference
                 invoice_number = self._get_text(tree, './/cbc:ID')
+
+            # Format invoice number (e.g., 2B286170 -> 2B-286170)
+            if invoice_number:
+                invoice_number = self._format_invoice_number(invoice_number)
 
             # Extract dates
             invoice_date = self._get_text(tree, './/cbc:IssueDate')
@@ -445,8 +517,32 @@ class SomexProcessorService:
             quantity_str = self._get_text(line_element, './/cbc:InvoicedQuantity')
             quantity_original = Decimal(quantity_str) if quantity_str else Decimal('0')
 
-            # Extract kilos from product name
-            kilos = self._extract_kilos_from_name(product_name)
+            # Try to extract kilos from database item description first
+            kilos = None
+            item_description = None
+            if product_code and self.repository:
+                item_data = self.repository.get_item_by_code(product_code)
+                if item_data:
+                    item_description = item_data.get('descripcion', '')
+                    self.logger.debug(
+                        f"Found item in DB: code={product_code}, desc={item_description}"
+                    )
+                    kilos = self._extract_kilos_from_name(item_description)
+                    if kilos:
+                        self.logger.info(
+                            f"Extracted {kilos} kilos from DB description for code {product_code}"
+                        )
+
+            # Fallback to extracting kilos from XML product name
+            if not kilos:
+                self.logger.debug(
+                    f"No kilos found in DB for code {product_code}, trying XML product name"
+                )
+                kilos = self._extract_kilos_from_name(product_name)
+                if kilos:
+                    self.logger.info(
+                        f"Extracted {kilos} kilos from XML product name"
+                    )
 
             # Calculate adjusted quantity (quantity * kilos)
             if kilos:
@@ -457,8 +553,8 @@ class SomexProcessorService:
             else:
                 quantity_adjusted = quantity_original
                 self.logger.warning(
-                    f"Could not extract kilos from '{product_name}', "
-                    f"using original quantity"
+                    f"Could not extract kilos for product code '{product_code}' "
+                    f"(name: '{product_name}'), using original quantity"
                 )
 
             # Taxable amount (subtotal before tax)
@@ -485,6 +581,10 @@ class SomexProcessorService:
                 Decimal(tax_percent_str) if tax_percent_str else Decimal('0')
             )
 
+            # Calculate line total (taxable amount + tax)
+            tax_amount = taxable_amount * (tax_percentage / Decimal('100'))
+            line_total = taxable_amount + tax_amount
+
             return {
                 'product_name': product_name or "",
                 'product_code': product_code or "SPN-1",  # Default code
@@ -495,6 +595,8 @@ class SomexProcessorService:
                 'unit_price': unit_price,
                 'tax_percentage': tax_percentage,
                 'taxable_amount': taxable_amount,
+                'tax_amount': tax_amount,
+                'line_total': line_total,  # Total de la línea
             }
 
         except Exception as e:
@@ -566,6 +668,38 @@ class SomexProcessorService:
             return result.text.strip()
         return ""
 
+    def _format_invoice_number(self, invoice_number: str) -> str:
+        """
+        Format invoice number by adding a hyphen after the initial number+letter pattern
+        Example: 2B286170 -> 2B-286170
+
+        Args:
+            invoice_number: Raw invoice number
+
+        Returns:
+            Formatted invoice number with hyphen
+        """
+        import re
+
+        if not invoice_number:
+            return invoice_number
+
+        # Pattern: starts with digit(s) followed by letter(s), then remaining characters
+        # Match: one or more digits, followed by one or more letters
+        pattern = r'^(\d+[A-Za-z]+)(.+)$'
+        match = re.match(pattern, invoice_number)
+
+        if match:
+            prefix = match.group(1)  # e.g., "2B"
+            suffix = match.group(2)  # e.g., "286170"
+            formatted = f"{prefix}-{suffix}"
+            self.logger.info(f"Formatted invoice number: {invoice_number} -> {formatted}")
+            return formatted
+
+        # If pattern doesn't match, return as-is
+        self.logger.debug(f"Invoice number {invoice_number} doesn't match format pattern, returning as-is")
+        return invoice_number
+
     def format_decimal(self, value: Decimal, decimals: int = 5) -> str:
         """Format decimal with specified decimals and comma separator"""
         # Format with 5 decimals
@@ -623,7 +757,8 @@ class SomexProcessorService:
             "Bodega",
             "Incentivo",
             "Cantidad Original (5 decimales - separdor coma)",
-            "Moneda (1,2,3)"
+            "Moneda (1,2,3)",
+            "Valor Total Línea (5 decimales - separador coma)"
         ]
 
         # Write headers with formatting
@@ -699,6 +834,11 @@ class SomexProcessorService:
 
             ws.cell(row=row_num, column=22).value = ""  # Moneda
 
+            # Valor Total Línea (5 decimales - separador coma)
+            ws.cell(row=row_num, column=23).value = self.format_decimal(
+                item.get('line_total', Decimal('0'))
+            )
+
             row_num += 1
 
         # Auto-adjust column widths
@@ -753,11 +893,12 @@ class SomexProcessorService:
             results['total_xmls'] = len(xml_files)
 
             for xml_filename, xml_content in xml_files:
-                # Check if already processed
-                if self.repository.is_xml_processed(xml_content):
-                    self.logger.info(f"Skipping already processed XML: {xml_filename}")
-                    results['skipped_xmls'] += 1
-                    continue
+                # NOTE: Validación de reprocesamiento deshabilitada a petición del usuario
+                # Permitir reprocesar todas las facturas
+                # if self.repository.is_xml_processed(xml_content):
+                #     self.logger.info(f"Skipping already processed XML: {xml_filename}")
+                #     results['skipped_xmls'] += 1
+                #     continue
 
                 # Parse XML
                 invoice_data = self.parse_invoice_xml(xml_content)
@@ -857,7 +998,8 @@ class SomexProcessorService:
             "Bodega",
             "Incentivo",
             "Cantidad Original (5 decimales - separdor coma)",
-            "Moneda (1,2,3)"
+            "Moneda (1,2,3)",
+            "Valor Total Línea (5 decimales - separador coma)"
         ]
 
         # Write headers with formatting
@@ -956,6 +1098,11 @@ class SomexProcessorService:
 
                 # Moneda (1,2,3) - siempre 1
                 ws.cell(row=row_num, column=22).value = "1"
+
+                # Valor Total Línea (5 decimales - separador coma)
+                ws.cell(row=row_num, column=23).value = self.format_decimal(
+                    item.get('line_total', Decimal('0'))
+                )
 
                 row_num += 1
 

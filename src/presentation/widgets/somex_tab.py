@@ -189,6 +189,37 @@ class ProcessingWorker(QThread):
                         f"Excel consolidado creado: {excel_path}"
                     )
 
+                    # Subir Excel a /ProcesadoCorreagro en SFTP
+                    try:
+                        excel_filename = Path(excel_path).name
+                        remote_excel_path = f"/ProcesadoCorreagro/{excel_filename}"
+
+                        self.progress_update.emit(
+                            f"Subiendo Excel a SFTP: {excel_filename}..."
+                        )
+
+                        upload_success, upload_msg = self.sftp_client.upload_file(
+                            excel_path,
+                            remote_excel_path
+                        )
+
+                        if upload_success:
+                            self.progress_update.emit(
+                                f"✓ Excel subido a /ProcesadoCorreagro/{excel_filename}"
+                            )
+                        else:
+                            self.logger.warning(
+                                f"No se pudo subir Excel: {upload_msg}"
+                            )
+                            self.progress_update.emit(
+                                f"⚠ No se pudo subir Excel al SFTP: {upload_msg}"
+                            )
+                    except Exception as e:
+                        self.logger.error(f"Error subiendo Excel al SFTP: {e}")
+                        self.progress_update.emit(
+                            f"⚠ Error subiendo Excel: {str(e)}"
+                        )
+
                 except Exception as e:
                     self.logger.error(f"Error generando Excel consolidado: {e}")
                     self.progress_update.emit(
@@ -310,7 +341,10 @@ class SomexTab(QWidget):
             logger=self.logger,
             output_dir="output/somex"
         )
-        self.items_importer = ItemsImporter(logger=self.logger)
+        self.items_importer = ItemsImporter(
+            logger=self.logger,
+            repository=self.repository
+        )
 
         self._init_ui()
 
@@ -810,7 +844,7 @@ class SomexTab(QWidget):
             return  # Usuario canceló
 
         try:
-            # Importar items
+            # Importar items (se guardan automáticamente en BD)
             self.progress_text.append(f"Importando items desde: {excel_path}")
 
             items = self.items_importer.import_items_from_excel(excel_path)
@@ -826,8 +860,8 @@ class SomexTab(QWidget):
                 )
                 return
 
-            # Guardar en base de datos
-            count = self.repository.save_items_bulk(items)
+            # Los items ya fueron guardados automáticamente en la BD
+            count = len(items)
 
             # Actualizar status
             self.items_status_label.setText(
