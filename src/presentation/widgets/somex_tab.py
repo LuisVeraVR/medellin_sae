@@ -353,7 +353,7 @@ class SomexTab(QWidget):
         layout = QVBoxLayout()
 
         # Título
-        title_label = QLabel("<h2>Somex - Descarga de XML/PDF vía SFTP</h2>")
+        title_label = QLabel("<h2>Somex - Procesamiento de Facturas PDF vía SFTP</h2>")
         layout.addWidget(title_label)
 
         # Grupo de configuración
@@ -385,7 +385,7 @@ class SomexTab(QWidget):
         connection_layout = QVBoxLayout()
 
         # Botón de conectar
-        self.connect_btn = QPushButton("Conectar y Listar XML/PDF")
+        self.connect_btn = QPushButton("Conectar y Listar Archivos")
         self.connect_btn.clicked.connect(self._on_connect_clicked)
         connection_layout.addWidget(self.connect_btn)
 
@@ -402,7 +402,7 @@ class SomexTab(QWidget):
         layout.addWidget(connection_group)
 
         # Grupo de archivos
-        files_group = QGroupBox("Archivos XML/PDF/ZIP Disponibles")
+        files_group = QGroupBox("Archivos Disponibles (PDF/ZIP)")
         files_layout = QVBoxLayout()
 
         # Tabla de archivos
@@ -484,9 +484,9 @@ class SomexTab(QWidget):
         desc_label = QLabel(
             "<b>Procesar automáticamente todos los ZIPs en /DocumentosPendientes:</b><br>"
             "- Descarga ZIPs desde el servidor SFTP<br>"
-            "- Extrae XMLs y PDFs de cada ZIP<br>"
+            "- Extrae PDFs de cada ZIP<br>"
             "- <b>Genera UN SOLO archivo Excel consolidado</b> con todas las facturas<br>"
-            "- Soporta facturas en formato XML y PDF"
+            "- <b>NOTA:</b> Actualmente solo procesa PDFs (XMLs deshabilitados)"
         )
         desc_label.setWordWrap(True)
         auto_layout.addWidget(desc_label)
@@ -736,10 +736,10 @@ class SomexTab(QWidget):
             "¿Desea procesar todos los archivos ZIP en /DocumentosPendientes?\n\n"
             "Esta operación:\n"
             "- Descargará todos los ZIPs del servidor\n"
-            "- Extraerá los XMLs y PDFs contenidos\n"
-            "- Generará archivos Excel consolidados\n"
+            "- Extraerá los PDFs contenidos\n"
+            "- Generará archivo Excel consolidado\n"
             "- Puede tomar varios minutos\n\n"
-            "El sistema procesará tanto facturas XML como PDF.",
+            "NOTA: El sistema procesará SOLO facturas PDF (XMLs deshabilitados).",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )

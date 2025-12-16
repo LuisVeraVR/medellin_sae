@@ -975,7 +975,8 @@ class SomexProcessorService:
         zip_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Process a ZIP file: extract XMLs and PDFs and parse them
+        Process a ZIP file: extract PDFs and parse them
+        NOTE: XML processing is currently disabled (only PDFs are processed)
 
         Args:
             zip_path: Path to ZIP file
@@ -1000,42 +1001,39 @@ class SomexProcessorService:
         }
 
         try:
-            # Extract XMLs from ZIP
-            xml_files = self.extract_xmls_from_zip(zip_path)
-            results['total_xmls'] = len(xml_files)
-
-            for xml_filename, xml_content in xml_files:
-                # NOTE: Validación de reprocesamiento deshabilitada a petición del usuario
-                # Permitir reprocesar todas las facturas
-                # if self.repository.is_xml_processed(xml_content):
-                #     self.logger.info(f"Skipping already processed XML: {xml_filename}")
-                #     results['skipped_xmls'] += 1
-                #     continue
-
-                # Parse XML
-                invoice_data = self.parse_invoice_xml(xml_content)
-
-                if not invoice_data:
-                    self.logger.warning(f"Failed to parse XML: {xml_filename}")
-                    results['failed_xmls'] += 1
-                    continue
-
-                # Add metadata to invoice data
-                invoice_data['xml_filename'] = xml_filename
-                invoice_data['xml_content'] = xml_content
-                invoice_data['zip_filename'] = zip_filename
-                invoice_data['source_type'] = 'xml'
-
-                results['invoices'].append(invoice_data)
-                results['processed_xmls'] += 1
-
-                self.logger.info(
-                    f"Parsed XML {xml_filename}: "
-                    f"Invoice {invoice_data.get('invoice_number', 'N/A')} "
-                    f"with {len(invoice_data.get('items', []))} items"
-                )
+            # NOTE: XML processing disabled - only processing PDFs
+            # Uncomment this block to re-enable XML processing
+            #
+            # # Extract XMLs from ZIP
+            # xml_files = self.extract_xmls_from_zip(zip_path)
+            # results['total_xmls'] = len(xml_files)
+            #
+            # for xml_filename, xml_content in xml_files:
+            #     # Parse XML
+            #     invoice_data = self.parse_invoice_xml(xml_content)
+            #
+            #     if not invoice_data:
+            #         self.logger.warning(f"Failed to parse XML: {xml_filename}")
+            #         results['failed_xmls'] += 1
+            #         continue
+            #
+            #     # Add metadata to invoice data
+            #     invoice_data['xml_filename'] = xml_filename
+            #     invoice_data['xml_content'] = xml_content
+            #     invoice_data['zip_filename'] = zip_filename
+            #     invoice_data['source_type'] = 'xml'
+            #
+            #     results['invoices'].append(invoice_data)
+            #     results['processed_xmls'] += 1
+            #
+            #     self.logger.info(
+            #         f"Parsed XML {xml_filename}: "
+            #         f"Invoice {invoice_data.get('invoice_number', 'N/A')} "
+            #         f"with {len(invoice_data.get('items', []))} items"
+            #     )
 
             # Extract PDFs from ZIP
+            self.logger.info("Processing PDFs only (XML processing disabled)")
             pdf_files = self.extract_pdfs_from_zip(zip_path)
             results['total_pdfs'] = len(pdf_files)
 
@@ -1070,7 +1068,7 @@ class SomexProcessorService:
         self.logger.info(
             f"=== process_zip_file summary for {zip_filename} ==="
         )
-        self.logger.info(f"Total XMLs: {results['total_xmls']}, Total PDFs: {results['total_pdfs']}")
+        self.logger.info(f"Total PDFs: {results['total_pdfs']} (XML processing disabled)")
         self.logger.info(f"Total invoices parsed: {len(results['invoices'])}")
         for inv in results['invoices']:
             source = inv.get('source_type', 'unknown').upper()
