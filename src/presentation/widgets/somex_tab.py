@@ -443,13 +443,16 @@ class SomexTab(QWidget):
         layout.addWidget(files_group)
 
         # Grupo de Items
-        items_group = QGroupBox("Importar Items")
+        items_group = QGroupBox("Cargar Items desde Excel")
         items_layout = QVBoxLayout()
 
         # Descripción de items
         items_desc = QLabel(
-            "<b>Importar Excel con Items (CodigoItem, Referencia, Descripcion, etc.):</b><br>"
-            "Este Excel se usa para hacer match con los productos de las facturas XML."
+            "<b>Cargar Excel con Items (Referencia, Descripcion):</b><br>"
+            "El Excel se carga en <b>MEMORIA</b> para:<br>"
+            "1. Buscar la <b>referencia</b> del producto por su nombre/descripción<br>"
+            "2. Consultar la <b>API de Somex</b> con la referencia encontrada<br>"
+            "3. Obtener <b>cantidadBultos</b> y <b>cantidadKg</b> directamente de la API"
         )
         items_desc.setWordWrap(True)
         items_layout.addWidget(items_desc)
@@ -844,74 +847,75 @@ class SomexTab(QWidget):
             return  # Usuario canceló
 
         try:
-            # Importar items (se guardan automáticamente en BD)
-            self.progress_text.append(f"Importando items desde: {excel_path}")
+            # Cargar items en el procesador (en memoria, no en BD)
+            self.progress_text.append(f"Cargando items desde: {excel_path}")
+            self.progress_text.append("=" * 80)
 
-            items = self.items_importer.import_items_from_excel(excel_path)
+            count = self.processor.load_items_excel(excel_path)
 
-            if not items:
+            if count == 0:
                 QMessageBox.warning(
                     self,
                     "Sin Items",
                     "No se encontraron items en el Excel.\n\n"
                     "Verifique que el archivo tenga las columnas correctas:\n"
-                    "CodigoItem, Referencia, Descripcion, IdPlan, DescPlan, "
-                    "IdMayor, DescripcionPlan, RowIdItem, Categoria"
+                    "CodigoItem, Referencia, Descripcion"
                 )
                 return
 
-            # Los items ya fueron guardados automáticamente en la BD
-            count = len(items)
-
             # Actualizar status
             self.items_status_label.setText(
-                f"✓ {count} items importados correctamente"
+                f"✓ {count} items cargados en memoria"
             )
             self.items_status_label.setStyleSheet("color: green;")
 
-            self.progress_text.append(f"✓ {count} items importados exitosamente")
+            self.progress_text.append(f"✅ {count} items cargados exitosamente en memoria")
+            self.progress_text.append("Los items están listos para usar en el procesamiento de facturas.")
+            self.progress_text.append("=" * 80)
 
             QMessageBox.information(
                 self,
-                "Importación Exitosa",
-                f"Se importaron {count} items correctamente.\n\n"
-                f"Los items están listos para usar en el procesamiento de facturas."
+                "Carga Exitosa",
+                f"Se cargaron {count} items en memoria.\n\n"
+                f"Los items están listos para:\n"
+                f"1. Buscar referencias por nombre de producto\n"
+                f"2. Consultar API de Somex con las referencias\n"
+                f"3. Obtener cantidades exactas de la API"
             )
 
         except Exception as e:
-            self.logger.error(f"Error importando items: {e}")
-            self.progress_text.append(f"✗ Error importando items: {str(e)}")
+            self.logger.error(f"Error cargando items: {e}")
+            self.progress_text.append(f"✗ Error cargando items: {str(e)}")
 
             QMessageBox.critical(
                 self,
-                "Error de Importación",
-                f"Error al importar items:\n\n{str(e)}\n\n"
+                "Error de Carga",
+                f"Error al cargar items:\n\n{str(e)}\n\n"
                 f"Verifique que el Excel tenga el formato correcto."
             )
 
     def _on_view_items_clicked(self) -> None:
         """Manejar click en botón Ver Items"""
         try:
-            items = self.repository.get_all_items()
+            items = self.processor.items_data
 
             if not items:
                 QMessageBox.information(
                     self,
                     "Sin Items",
-                    "No hay items importados.\n\n"
+                    "No hay items cargados en memoria.\n\n"
                     "Use el botón 'Importar Excel de Items' para cargar items."
                 )
                 return
 
             # Mostrar primeros 10 items
-            items_text = f"Items Importados ({len(items)} total)\n"
+            items_text = f"Items Cargados en Memoria ({len(items)} total)\n"
             items_text += "=" * 60 + "\n\n"
 
             for i, item in enumerate(items[:10], 1):
-                items_text += f"{i}. Código: {item['codigo_item']}\n"
+                items_text += f"{i}. Descripción: {item['descripcion']}\n"
                 items_text += f"   Referencia: {item['referencia']}\n"
-                items_text += f"   Descripción: {item['descripcion']}\n"
-                items_text += f"   Categoría: {item['categoria']}\n\n"
+                items_text += f"   Código: {item['codigo_item']}\n\n"
 
             if len(items) > 10:
                 items_text += f"\n... y {len(items) - 10} items más"

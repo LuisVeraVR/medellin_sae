@@ -119,7 +119,8 @@ class SomexProcessorService:
         repository: SomexRepository,
         logger: logging.Logger,
         output_dir: str = "output/somex",
-        api_client: Optional[SomexApiClient] = None
+        api_client: Optional[SomexApiClient] = None,
+        items_excel_path: Optional[str] = None
     ):
         self.repository = repository
         self.logger = logger
@@ -128,6 +129,115 @@ class SomexProcessorService:
 
         # Initialize Somex API client
         self.api_client = api_client or SomexApiClient(logger=logger)
+
+        # Load items from Excel into memory
+        self.items_data = []
+        if items_excel_path:
+            self._load_items_from_excel(items_excel_path)
+
+    def _load_items_from_excel(self, excel_path: str) -> None:
+        """
+        Load items from Excel file into memory for reference lookup
+
+        Expected columns: CodigoItem, Referencia, Descripcion, etc.
+        """
+        try:
+            self.logger.info("=" * 80)
+            self.logger.info(f"📁 CARGANDO EXCEL DE ITEMS: {excel_path}")
+            self.logger.info("=" * 80)
+
+            wb = openpyxl.load_workbook(excel_path, read_only=True)
+            ws = wb.active
+
+            # Read headers
+            headers = []
+            for cell in ws[1]:
+                headers.append(cell.value)
+
+            self.logger.info(f"Columnas encontradas: {headers}")
+
+            # Map columns
+            column_map = {}
+            for idx, header in enumerate(headers):
+                if header:
+                    header_clean = str(header).lower().replace(' ', '').strip()
+                    column_map[header_clean] = idx
+
+            # Read data rows
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                # Try different column name variations
+                codigo_idx = (
+                    column_map.get('codigoitem') or
+                    column_map.get('codigo') or
+                    0
+                )
+                ref_idx = column_map.get('referencia') or 1
+                desc_idx = column_map.get('descripcion') or 2
+
+                item = {
+                    'codigo_item': str(row[codigo_idx] or '').strip(),
+                    'referencia': str(row[ref_idx] or '').strip(),
+                    'descripcion': str(row[desc_idx] or '').strip().upper(),
+                }
+
+                # Only add if has description
+                if item['descripcion']:
+                    self.items_data.append(item)
+
+            wb.close()
+
+            self.logger.info(f"✅ CARGADOS {len(self.items_data)} ITEMS EN MEMORIA")
+            if self.items_data:
+                self.logger.info("Ejemplos de items cargados:")
+                for item in self.items_data[:3]:
+                    self.logger.info(
+                        f"  - Desc: '{item['descripcion']}' → Ref: '{item['referencia']}'"
+                    )
+            self.logger.info("=" * 80)
+
+        except Exception as e:
+            self.logger.error(f"❌ ERROR cargando Excel de items: {e}")
+            self.items_data = []
+
+    def load_items_excel(self, excel_path: str) -> int:
+        """
+        Public method to load items Excel after initialization
+
+        Args:
+            excel_path: Path to Excel file with items
+
+        Returns:
+            Number of items loaded
+        """
+        self._load_items_from_excel(excel_path)
+        return len(self.items_data)
+
+    def find_reference_by_description(self, product_name: str) -> Optional[str]:
+        """
+        Find product reference by description in loaded items
+
+        Args:
+            product_name: Product name/description from XML
+
+        Returns:
+            Product reference or None
+        """
+        if not product_name or not self.items_data:
+            return None
+
+        product_name_upper = product_name.strip().upper()
+
+        # Try exact match first
+        for item in self.items_data:
+            if item['descripcion'] == product_name_upper:
+                return item['referencia']
+
+        # Try partial match
+        for item in self.items_data:
+            if product_name_upper in item['descripcion'] or item['descripcion'] in product_name_upper:
+                return item['referencia']
+
+        return None
 
     def extract_xmls_from_zip(self, zip_path: str) -> List[Tuple[str, bytes]]:
         """
@@ -505,11 +615,15 @@ class SomexProcessorService:
             Dictionary with item data or None
         """
         try:
+            self.logger.info("\n" + "=" * 100)
+
             # Product name from Note
             product_name = self._get_text(line_element, './/cbc:Note')
             if not product_name:
                 # Fallback to Description
                 product_name = self._get_text(line_element, './/cac:Item/cbc:Description')
+
+            self.logger.info(f"📦 PRODUCTO DEL XML: '{product_name}'")
 
             # Product code from StandardItemIdentification
             product_code = self._get_text(
@@ -527,46 +641,76 @@ class SomexProcessorService:
             quantity_str = self._get_text(line_element, './/cbc:InvoicedQuantity')
             quantity_original = Decimal(quantity_str) if quantity_str else Decimal('0')
 
-            # NEW: Try to get quantities from Somex API
+            self.logger.info(f"📊 Cantidad original del XML: {quantity_original}")
+
+            # STEP 1: Find reference in Excel
+            self.logger.info(f"\n🔍 PASO 1: Buscando referencia en Excel para: '{product_name}'")
+            referencia = self.find_reference_by_description(product_name)
+
+            if referencia:
+                self.logger.info(f"✅ REFERENCIA ENCONTRADA EN EXCEL: '{referencia}'")
+            else:
+                self.logger.warning(f"❌ NO SE ENCONTRÓ referencia en Excel para: '{product_name}'")
+
+            # STEP 2: Query Somex API
             quantity_adjusted = None
             api_data_used = False
 
-            # First, try to find the item by description to get the reference
-            referencia = None
-            if product_name and self.repository:
-                item_data = self.repository.get_item_by_description(product_name)
-                if item_data:
-                    referencia = item_data.get('referencia')
-                    self.logger.info(
-                        f"Found reference '{referencia}' for product '{product_name}'"
-                    )
+            if referencia and invoice_number and self.api_client:
+                self.logger.info(f"\n🌐 PASO 2: Consultando API Somex")
+                self.logger.info(f"   Factura: {invoice_number}")
+                self.logger.info(f"   Buscando referencia: {referencia}")
 
-                    # Try API lookup with invoice number and reference
-                    if invoice_number and referencia and self.api_client:
-                        api_item = self.api_client.get_item_by_reference(
-                            invoice_number,
-                            referencia
-                        )
+                # Get all invoice data from API
+                invoice_api_data = self.api_client.get_invoice_data(invoice_number)
 
-                        if api_item:
-                            # Use quantities from API
+                if invoice_api_data:
+                    self.logger.info(f"📊 API respondió con {len(invoice_api_data)} items")
+
+                    # Log all references from API
+                    self.logger.info("   Referencias en la API:")
+                    for idx, api_item in enumerate(invoice_api_data, 1):
+                        api_ref = api_item.get('referencia', 'N/A')
+                        self.logger.info(f"      [{idx}] Ref: {api_ref}")
+
+                    # Find matching reference
+                    self.logger.info(f"\n🔎 PASO 3: Comparando referencia '{referencia}' con items de API")
+
+                    for api_item in invoice_api_data:
+                        api_ref = api_item.get('referencia')
+
+                        if str(api_ref) == str(referencia):
+                            # MATCH FOUND!
                             cantidad_bultos = api_item.get('cantidadBultos')
                             cantidad_kg = api_item.get('cantidadKg')
+
+                            self.logger.info("=" * 100)
+                            self.logger.info("✅✅✅ MATCH ENCONTRADO EN API ✅✅✅")
+                            self.logger.info(f"   Producto: '{product_name}'")
+                            self.logger.info(f"   Referencia: {referencia}")
+                            self.logger.info(f"   cantidadBultos: {cantidad_bultos}")
+                            self.logger.info(f"   cantidadKg: {cantidad_kg}")
+                            self.logger.info("=" * 100)
 
                             if cantidad_bultos is not None and cantidad_kg is not None:
                                 quantity_original = Decimal(str(cantidad_bultos))
                                 quantity_adjusted = Decimal(str(cantidad_kg))
                                 api_data_used = True
-                                self.logger.info(
-                                    f"Using API data: cantidadBultos={cantidad_bultos}, "
-                                    f"cantidadKg={cantidad_kg} for reference {referencia}"
-                                )
+                                break
+
+                    if not api_data_used:
+                        self.logger.warning(f"❌ NO SE ENCONTRÓ la referencia '{referencia}' en los items de la API")
+                else:
+                    self.logger.warning(f"⚠️  API no respondió datos para factura {invoice_number}")
+            else:
+                if not referencia:
+                    self.logger.warning("⚠️  No se puede consultar API: No hay referencia")
+                elif not invoice_number:
+                    self.logger.warning("⚠️  No se puede consultar API: No hay número de factura")
 
             # Fallback: calculate using kilos from description (old method)
             if not api_data_used:
-                self.logger.info(
-                    f"API data not available for '{product_name}', using fallback calculation"
-                )
+                self.logger.info(f"\n⚠️  USANDO MÉTODO FALLBACK (cálculo manual de kilos)")
 
                 # Try to extract kilos from database item description first
                 kilos = None
