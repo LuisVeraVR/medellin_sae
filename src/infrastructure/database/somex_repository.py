@@ -236,6 +236,42 @@ class SomexRepository:
             return dict(row)
         return None
 
+    def get_item_by_description(self, descripcion: str) -> Optional[Dict[str, Any]]:
+        """
+        Get item information by description (partial match)
+
+        Args:
+            descripcion: Product description/name to search for
+
+        Returns:
+            Item data or None if not found
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Try exact match first
+        cursor.execute(
+            'SELECT * FROM somex_items WHERE descripcion = ?',
+            (descripcion,)
+        )
+
+        row = cursor.fetchone()
+
+        # If no exact match, try partial match
+        if not row:
+            cursor.execute(
+                'SELECT * FROM somex_items WHERE descripcion LIKE ?',
+                (f'%{descripcion}%',)
+            )
+            row = cursor.fetchone()
+
+        conn.close()
+
+        if row:
+            return dict(row)
+        return None
+
     def get_all_items(self) -> List[Dict[str, Any]]:
         """Get all items"""
         conn = sqlite3.connect(self.db_path)

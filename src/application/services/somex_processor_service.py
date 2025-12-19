@@ -12,6 +12,7 @@ from datetime import datetime
 
 from src.infrastructure.database.somex_repository import SomexRepository
 from src.infrastructure.sftp.somex_sftp_client import SomexSftpClient
+from src.infrastructure.api.somex_api_client import SomexApiClient
 
 
 class ItemsImporter:
@@ -117,12 +118,16 @@ class SomexProcessorService:
         self,
         repository: SomexRepository,
         logger: logging.Logger,
-        output_dir: str = "output/somex"
+        output_dir: str = "output/somex",
+        api_client: Optional[SomexApiClient] = None
     ):
         self.repository = repository
         self.logger = logger
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Initialize Somex API client
+        self.api_client = api_client or SomexApiClient(logger=logger)
 
     def extract_xmls_from_zip(self, zip_path: str) -> List[Tuple[str, bytes]]:
         """
@@ -432,7 +437,7 @@ class SomexProcessorService:
 
             for idx, line in enumerate(lines, 1):
                 self.logger.info(f"Parsing Somex line item {idx}/{len(lines)}")
-                item = self._parse_somex_line_item(line)
+                item = self._parse_somex_line_item(line, invoice_number)
                 if item:
                     invoice_data['items'].append(item)
                     self.logger.info(
@@ -484,12 +489,17 @@ class SomexProcessorService:
             self.logger.error(f"Error extracting kilos from name: {e}")
             return None
 
-    def _parse_somex_line_item(self, line_element) -> Optional[Dict[str, Any]]:
+    def _parse_somex_line_item(
+        self,
+        line_element,
+        invoice_number: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """
         Parse a single invoice line item using Somex-specific rules
 
         Args:
             line_element: InvoiceLine XML element
+            invoice_number: Invoice number for API lookup
 
         Returns:
             Dictionary with item data or None
@@ -517,45 +527,86 @@ class SomexProcessorService:
             quantity_str = self._get_text(line_element, './/cbc:InvoicedQuantity')
             quantity_original = Decimal(quantity_str) if quantity_str else Decimal('0')
 
-            # Try to extract kilos from database item description first
-            kilos = None
-            item_description = None
-            if product_code and self.repository:
-                item_data = self.repository.get_item_by_code(product_code)
+            # NEW: Try to get quantities from Somex API
+            quantity_adjusted = None
+            api_data_used = False
+
+            # First, try to find the item by description to get the reference
+            referencia = None
+            if product_name and self.repository:
+                item_data = self.repository.get_item_by_description(product_name)
                 if item_data:
-                    item_description = item_data.get('descripcion', '')
-                    self.logger.debug(
-                        f"Found item in DB: code={product_code}, desc={item_description}"
+                    referencia = item_data.get('referencia')
+                    self.logger.info(
+                        f"Found reference '{referencia}' for product '{product_name}'"
                     )
-                    kilos = self._extract_kilos_from_name(item_description)
-                    if kilos:
-                        self.logger.info(
-                            f"Extracted {kilos} kilos from DB description for code {product_code}"
+
+                    # Try API lookup with invoice number and reference
+                    if invoice_number and referencia and self.api_client:
+                        api_item = self.api_client.get_item_by_reference(
+                            invoice_number,
+                            referencia
                         )
 
-            # Fallback to extracting kilos from XML product name
-            if not kilos:
-                self.logger.debug(
-                    f"No kilos found in DB for code {product_code}, trying XML product name"
-                )
-                kilos = self._extract_kilos_from_name(product_name)
-                if kilos:
-                    self.logger.info(
-                        f"Extracted {kilos} kilos from XML product name"
-                    )
+                        if api_item:
+                            # Use quantities from API
+                            cantidad_bultos = api_item.get('cantidadBultos')
+                            cantidad_kg = api_item.get('cantidadKg')
 
-            # Calculate adjusted quantity (quantity * kilos)
-            if kilos:
-                quantity_adjusted = quantity_original * kilos
-                self.logger.debug(
-                    f"Adjusted quantity: {quantity_original} * {kilos} = {quantity_adjusted}"
+                            if cantidad_bultos is not None and cantidad_kg is not None:
+                                quantity_original = Decimal(str(cantidad_bultos))
+                                quantity_adjusted = Decimal(str(cantidad_kg))
+                                api_data_used = True
+                                self.logger.info(
+                                    f"Using API data: cantidadBultos={cantidad_bultos}, "
+                                    f"cantidadKg={cantidad_kg} for reference {referencia}"
+                                )
+
+            # Fallback: calculate using kilos from description (old method)
+            if not api_data_used:
+                self.logger.info(
+                    f"API data not available for '{product_name}', using fallback calculation"
                 )
-            else:
-                quantity_adjusted = quantity_original
-                self.logger.warning(
-                    f"Could not extract kilos for product code '{product_code}' "
-                    f"(name: '{product_name}'), using original quantity"
-                )
+
+                # Try to extract kilos from database item description first
+                kilos = None
+                item_description = None
+                if product_code and self.repository:
+                    item_data = self.repository.get_item_by_code(product_code)
+                    if item_data:
+                        item_description = item_data.get('descripcion', '')
+                        self.logger.debug(
+                            f"Found item in DB: code={product_code}, desc={item_description}"
+                        )
+                        kilos = self._extract_kilos_from_name(item_description)
+                        if kilos:
+                            self.logger.info(
+                                f"Extracted {kilos} kilos from DB description for code {product_code}"
+                            )
+
+                # Fallback to extracting kilos from XML product name
+                if not kilos:
+                    self.logger.debug(
+                        f"No kilos found in DB for code {product_code}, trying XML product name"
+                    )
+                    kilos = self._extract_kilos_from_name(product_name)
+                    if kilos:
+                        self.logger.info(
+                            f"Extracted {kilos} kilos from XML product name"
+                        )
+
+                # Calculate adjusted quantity (quantity * kilos)
+                if kilos:
+                    quantity_adjusted = quantity_original * kilos
+                    self.logger.debug(
+                        f"Adjusted quantity: {quantity_original} * {kilos} = {quantity_adjusted}"
+                    )
+                else:
+                    quantity_adjusted = quantity_original
+                    self.logger.warning(
+                        f"Could not extract kilos for product code '{product_code}' "
+                        f"(name: '{product_name}'), using original quantity"
+                    )
 
             # Taxable amount (subtotal before tax)
             taxable_amount_str = self._get_text(
