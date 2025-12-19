@@ -391,10 +391,14 @@ class SomexProcessorService:
             # Override with AttachedDocument data if available
             if invoice_data and attached_invoice_number:
                 self.logger.info(
-                    f"Overriding invoice number: {invoice_data.get('invoice_number')} "
-                    f"-> {attached_invoice_number}"
+                    f"🔄 OVERRIDE desde AttachedDocument: {invoice_data.get('invoice_number')} "
+                    f"→ {attached_invoice_number}"
                 )
                 invoice_data['invoice_number'] = attached_invoice_number
+            elif invoice_data:
+                self.logger.info(
+                    f"📋 Usando número de factura del Invoice: {invoice_data.get('invoice_number')}"
+                )
 
             if invoice_data and attached_buyer_nit:
                 self.logger.info(
@@ -411,8 +415,12 @@ class SomexProcessorService:
                 invoice_data['buyer_name'] = attached_buyer_name
 
             if invoice_data:
-                self.logger.info(f"Final invoice number: {invoice_data['invoice_number']}")
-                self.logger.info(f"Final buyer: {invoice_data['buyer_nit']} - {invoice_data['buyer_name']}")
+                self.logger.info("=" * 100)
+                self.logger.info("📄 INFORMACIÓN FINAL DE LA FACTURA:")
+                self.logger.info(f"   Número de Factura: {invoice_data['invoice_number']}")
+                self.logger.info(f"   Comprador: {invoice_data['buyer_nit']} - {invoice_data['buyer_name']}")
+                self.logger.info(f"   Items a procesar: {len(invoice_data.get('items', []))}")
+                self.logger.info("=" * 100)
 
             return invoice_data
 
@@ -487,13 +495,18 @@ class SomexProcessorService:
         try:
             # Extract invoice number from OrderReference (NOT from main cbc:ID)
             invoice_number = self._get_text(tree, './/cac:OrderReference/cbc:ID')
+            self.logger.info(f"📋 Número de factura desde OrderReference: '{invoice_number}'")
+
             if not invoice_number:
                 # Fallback to main ID if no OrderReference
                 invoice_number = self._get_text(tree, './/cbc:ID')
+                self.logger.info(f"📋 Número de factura desde cbc:ID (fallback): '{invoice_number}'")
 
             # Format invoice number (e.g., 2B286170 -> 2B-286170)
             if invoice_number:
+                original_invoice_number = invoice_number
                 invoice_number = self._format_invoice_number(invoice_number)
+                self.logger.info(f"📋 Número de factura formateado: '{original_invoice_number}' → '{invoice_number}'")
 
             # Extract dates
             invoice_date = self._get_text(tree, './/cbc:IssueDate')
