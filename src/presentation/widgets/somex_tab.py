@@ -58,7 +58,46 @@ class ProcessingWorker(QThread):
                 self.error_occurred.emit(f"Error de conexión: {message}")
                 return
 
-            self.progress_update.emit("Conexión exitosa. Listando archivos ZIP...")
+            self.progress_update.emit("Conexión exitosa.")
+
+            # PASO 1: Descargar ListadoItems.xlsx desde /Items
+            self.progress_update.emit("=" * 80)
+            self.progress_update.emit("📁 DESCARGANDO LISTADO DE ITEMS DESDE SFTP...")
+            self.progress_update.emit("=" * 80)
+
+            items_remote_path = "/Items/ListadoItems.xlsx"
+            items_local_path = Path(tempfile.gettempdir()) / "ListadoItems.xlsx"
+
+            self.progress_update.emit(f"Descargando: {items_remote_path}")
+
+            items_success, items_message = self.sftp_client.download_file(
+                items_remote_path,
+                str(items_local_path)
+            )
+
+            if items_success:
+                self.progress_update.emit(f"✅ Archivo de items descargado exitosamente")
+
+                # Cargar items en el procesador
+                self.progress_update.emit("📋 Cargando items en memoria...")
+                try:
+                    items_count = self.processor.load_items_excel(str(items_local_path))
+                    self.progress_update.emit(f"✅ {items_count} ITEMS CARGADOS EN MEMORIA")
+                    self.progress_update.emit("   → Se usarán para buscar referencias por nombre de producto")
+                    self.progress_update.emit("   → Se compararán con la API de Somex para obtener cantidades")
+                    self.progress_update.emit("=" * 80)
+                except Exception as e:
+                    self.logger.error(f"Error cargando items: {e}")
+                    self.progress_update.emit(f"⚠️  Error cargando items: {e}")
+                    self.progress_update.emit("⚠️  Continuando sin archivo de items (se usará método fallback)")
+            else:
+                self.logger.warning(f"No se pudo descargar ListadoItems.xlsx: {items_message}")
+                self.progress_update.emit(f"⚠️  No se pudo descargar ListadoItems.xlsx: {items_message}")
+                self.progress_update.emit("⚠️  Continuando sin archivo de items (se usará método fallback)")
+                self.progress_update.emit("=" * 80)
+
+            # PASO 2: Listar y procesar ZIPs
+            self.progress_update.emit("📦 Listando archivos ZIP en /DocumentosPendientes...")
 
             # Listar archivos ZIP
             all_files = self.sftp_client.list_files(self.remote_dir)
@@ -443,12 +482,13 @@ class SomexTab(QWidget):
         layout.addWidget(files_group)
 
         # Grupo de Items
-        items_group = QGroupBox("Cargar Items desde Excel")
+        items_group = QGroupBox("Cargar Items desde Excel (Opcional)")
         items_layout = QVBoxLayout()
 
         # Descripción de items
         items_desc = QLabel(
-            "<b>Cargar Excel con Items (Referencia, Descripcion):</b><br>"
+            "<b>Cargar manualmente Excel con Items (Referencia, Descripcion):</b><br>"
+            "<i>NOTA: El procesamiento automático descarga ListadoItems.xlsx desde /Items</i><br><br>"
             "El Excel se carga en <b>MEMORIA</b> para:<br>"
             "1. Buscar la <b>referencia</b> del producto por su nombre/descripción<br>"
             "2. Consultar la <b>API de Somex</b> con la referencia encontrada<br>"
@@ -486,10 +526,12 @@ class SomexTab(QWidget):
         # Descripción
         desc_label = QLabel(
             "<b>Procesar automáticamente todos los ZIPs en /DocumentosPendientes:</b><br>"
-            "- Descarga ZIPs desde el servidor SFTP<br>"
-            "- Extrae XMLs de cada ZIP<br>"
-            "- <b>Genera UN SOLO archivo Excel consolidado</b> con todas las facturas<br>"
-            "- Evita reprocesar XMLs ya procesados"
+            "1. <b>Descarga automáticamente</b> el archivo <b>ListadoItems.xlsx</b> desde /Items<br>"
+            "2. Carga los items en memoria para buscar referencias<br>"
+            "3. Descarga y procesa todos los ZIPs desde /DocumentosPendientes<br>"
+            "4. <b>Consulta la API de Somex</b> para obtener cantidades exactas<br>"
+            "5. <b>Genera UN SOLO archivo Excel consolidado</b> con todas las facturas<br>"
+            "6. <b>Sube el Excel a /ProcesadoCorreagro</b>"
         )
         desc_label.setWordWrap(True)
         auto_layout.addWidget(desc_label)
