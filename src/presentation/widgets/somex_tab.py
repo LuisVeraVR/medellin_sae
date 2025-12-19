@@ -3,6 +3,7 @@ import logging
 import tempfile
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLineEdit, QTableWidget, QTableWidgetItem, QMessageBox,
@@ -41,11 +42,29 @@ class ProcessingWorker(QThread):
         self.sftp_client: Optional[SomexSftpClient] = None
         self.remote_dir = "/DocumentosPendientes"
 
+        # Setup detailed logging to file
+        self.log_file_path = Path("logs") / f"somex_processing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        self.log_file_path.parent.mkdir(exist_ok=True)
+
     def run(self) -> None:
         """Ejecutar procesamiento automático de ZIPs"""
         try:
+            # Setup detailed logging to file
+            file_handler = logging.FileHandler(str(self.log_file_path), mode='w', encoding='utf-8')
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+            self.logger.addHandler(file_handler)
+
+            self.progress_update.emit("=" * 80)
+            self.progress_update.emit(f"📄 LOGS DETALLADOS: {self.log_file_path}")
+            self.progress_update.emit("   Abre este archivo para ver:")
+            self.progress_update.emit("   - Comparaciones con Excel")
+            self.progress_update.emit("   - Referencias encontradas en API")
+            self.progress_update.emit("   - Cantidades aplicadas")
+            self.progress_update.emit("=" * 80)
+
             # Conectar al SFTP
-            self.progress_update.emit("Conectando a servidor SFTP de Somex...")
+            self.progress_update.emit("\nConectando a servidor SFTP de Somex...")
             self.sftp_client = SomexSftpClient(logger=self.logger)
 
             success, message = self.sftp_client.connect(
@@ -272,8 +291,15 @@ class ProcessingWorker(QThread):
             self.error_occurred.emit(str(e))
 
         finally:
+            # Close SFTP connection
             if self.sftp_client:
                 self.sftp_client.close()
+
+            # Remove file handler
+            for handler in self.logger.handlers[:]:
+                if isinstance(handler, logging.FileHandler):
+                    handler.close()
+                    self.logger.removeHandler(handler)
 
 
 class SftpWorker(QThread):
@@ -822,6 +848,11 @@ class SomexTab(QWidget):
         """Manejar finalización del procesamiento"""
         self.process_btn.setEnabled(True)
 
+        # Get log file path from worker if available
+        log_file_path = None
+        if self.processing_worker:
+            log_file_path = self.processing_worker.log_file_path
+
         # Mostrar resumen
         summary = (
             f"\n{'='*60}\n"
@@ -839,6 +870,12 @@ class SomexTab(QWidget):
             summary += f"\nArchivo Excel consolidado:\n{results['excel_file']}\n"
         else:
             summary += "\nNo se generó Excel (no hay facturas nuevas)\n"
+
+        if log_file_path:
+            summary += f"\n{'='*60}\n"
+            summary += f"📄 LOGS DETALLADOS guardados en:\n{log_file_path}\n"
+            summary += f"Abre este archivo para ver comparaciones detalladas\n"
+            summary += f"{'='*60}\n"
 
         self.progress_text.append(summary)
 
