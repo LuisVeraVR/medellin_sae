@@ -263,7 +263,7 @@ class ProcessingWorker(QThread):
 
                         if upload_success:
                             self.progress_update.emit(
-                                f"✓ Excel subido a /ProcesadoCorreagro/{excel_filename}"
+                                f"[OK] Excel subido a /ProcesadoCorreagro/{excel_filename}"
                             )
                         else:
                             self.logger.warning(
@@ -944,7 +944,7 @@ class SomexTab(QWidget):
 
             # Actualizar status
             self.items_status_label.setText(
-                f"✓ {count} items cargados en memoria"
+                f"[OK] {count} items cargados en memoria"
             )
             self.items_status_label.setStyleSheet("color: green;")
 
@@ -964,7 +964,7 @@ class SomexTab(QWidget):
 
         except Exception as e:
             self.logger.error(f"Error cargando items: {e}")
-            self.progress_text.append(f"✗ Error cargando items: {str(e)}")
+            self.progress_text.append(f"[ERROR] Error cargando items: {str(e)}")
 
             QMessageBox.critical(
                 self,

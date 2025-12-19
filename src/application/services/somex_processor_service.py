@@ -391,32 +391,25 @@ class SomexProcessorService:
                 self.logger.info(f"Extracted embedded Invoice, new root: {tree.tag}")
 
             # Extract invoice data using Somex-specific rules
-            invoice_data = self._parse_somex_invoice(tree)
+            # Pass attached_invoice_number so API queries use the correct number
+            invoice_data = self._parse_somex_invoice(tree, attached_invoice_number)
 
-            # Override with AttachedDocument data if available
-            if invoice_data and attached_invoice_number:
-                self.logger.info(
-                    f"*** OVERRIDE desde AttachedDocument: {invoice_data.get('invoice_number')} "
-                    f"-> {attached_invoice_number}"
-                )
-                invoice_data['invoice_number'] = attached_invoice_number
-            elif invoice_data:
-                self.logger.info(
-                    f"[Final] Usando numero de factura del Invoice: {invoice_data.get('invoice_number')}"
-                )
+            # Note: invoice_number is already set correctly in _parse_somex_invoice
+            # No override needed since we passed attached_invoice_number directly
 
+            # Override buyer data from AttachedDocument if available (more reliable)
             if invoice_data and attached_buyer_nit:
-                self.logger.info(
-                    f"*** Overriding buyer NIT: {invoice_data.get('buyer_nit')} "
-                    f"-> {attached_buyer_nit}"
-                )
+                if invoice_data.get('buyer_nit'):
+                    self.logger.info(
+                        f"[Override] Buyer NIT: {invoice_data.get('buyer_nit')} -> {attached_buyer_nit}"
+                    )
                 invoice_data['buyer_nit'] = attached_buyer_nit
 
             if invoice_data and attached_buyer_name:
-                self.logger.info(
-                    f"*** Overriding buyer name: {invoice_data.get('buyer_name')} "
-                    f"-> {attached_buyer_name}"
-                )
+                if invoice_data.get('buyer_name'):
+                    self.logger.info(
+                        f"[Override] Buyer Name: {invoice_data.get('buyer_name')} -> {attached_buyer_name}"
+                    )
                 invoice_data['buyer_name'] = attached_buyer_name
 
             if invoice_data:
@@ -487,31 +480,37 @@ class SomexProcessorService:
             self.logger.error(f"Error extracting embedded invoice: {e}", exc_info=True)
             return None
 
-    def _parse_somex_invoice(self, tree) -> Optional[Dict[str, Any]]:
+    def _parse_somex_invoice(self, tree, override_invoice_number: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Parse Invoice XML using Somex-specific rules
 
         Args:
             tree: Root element of Invoice
+            override_invoice_number: Invoice number from AttachedDocument (takes priority)
 
         Returns:
             Dictionary with invoice data
         """
         try:
-            # Extract invoice number from OrderReference (NOT from main cbc:ID)
-            invoice_number = self._get_text(tree, './/cac:OrderReference/cbc:ID')
-            self.logger.info(f"[Invoice] Numero de factura desde OrderReference: '{invoice_number}'")
+            # Use override invoice number from AttachedDocument if available
+            if override_invoice_number:
+                invoice_number = override_invoice_number
+                self.logger.info(f"[Invoice] Usando numero de factura desde AttachedDocument: '{invoice_number}'")
+            else:
+                # Extract invoice number from OrderReference (NOT from main cbc:ID)
+                invoice_number = self._get_text(tree, './/cac:OrderReference/cbc:ID')
+                self.logger.info(f"[Invoice] Numero de factura desde OrderReference: '{invoice_number}'")
 
-            if not invoice_number:
-                # Fallback to main ID if no OrderReference
-                invoice_number = self._get_text(tree, './/cbc:ID')
-                self.logger.info(f"[Invoice] Numero de factura desde cbc:ID (fallback): '{invoice_number}'")
+                if not invoice_number:
+                    # Fallback to main ID if no OrderReference
+                    invoice_number = self._get_text(tree, './/cbc:ID')
+                    self.logger.info(f"[Invoice] Numero de factura desde cbc:ID (fallback): '{invoice_number}'")
 
-            # Format invoice number (e.g., 2B286170 -> 2B-286170)
-            if invoice_number:
-                original_invoice_number = invoice_number
-                invoice_number = self._format_invoice_number(invoice_number)
-                self.logger.info(f"[Invoice] Numero de factura formateado: '{original_invoice_number}' -> '{invoice_number}'")
+                # Format invoice number (e.g., 2B286170 -> 2B-286170)
+                if invoice_number:
+                    original_invoice_number = invoice_number
+                    invoice_number = self._format_invoice_number(invoice_number)
+                    self.logger.info(f"[Invoice] Numero de factura formateado: '{original_invoice_number}' -> '{invoice_number}'")
 
             # Extract dates
             invoice_date = self._get_text(tree, './/cbc:IssueDate')
@@ -574,13 +573,13 @@ class SomexProcessorService:
                 if item:
                     invoice_data['items'].append(item)
                     self.logger.info(
-                        f"  ✓ Product: {item['product_name']}, "
+                        f"  [OK] Product: {item['product_name']}, "
                         f"Code: {item['product_code']}, "
                         f"Qty Original: {item['quantity_original']}, "
                         f"Qty Adjusted: {item['quantity_adjusted']}"
                     )
                 else:
-                    self.logger.warning(f"  ✗ Failed to parse line item {idx}")
+                    self.logger.warning(f"  [FAILED] Failed to parse line item {idx}")
 
             self.logger.info(
                 f"Parsed Somex invoice {invoice_number} "
