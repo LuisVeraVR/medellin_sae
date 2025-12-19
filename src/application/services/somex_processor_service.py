@@ -143,7 +143,7 @@ class SomexProcessorService:
         """
         try:
             self.logger.info("=" * 80)
-            self.logger.info(f"📁 CARGANDO EXCEL DE ITEMS: {excel_path}")
+            self.logger.info(f"[ITEMS] CARGANDO EXCEL DE ITEMS: {excel_path}")
             self.logger.info("=" * 80)
 
             wb = openpyxl.load_workbook(excel_path, read_only=True)
@@ -186,7 +186,7 @@ class SomexProcessorService:
 
             wb.close()
 
-            self.logger.info(f"✅ CARGADOS {len(self.items_data)} ITEMS EN MEMORIA")
+            self.logger.info(f"[ITEMS] CARGADOS {len(self.items_data)} ITEMS EN MEMORIA")
             if self.items_data:
                 self.logger.info("Ejemplos de items cargados:")
                 for item in self.items_data[:3]:
@@ -196,7 +196,7 @@ class SomexProcessorService:
             self.logger.info("=" * 80)
 
         except Exception as e:
-            self.logger.error(f"❌ ERROR cargando Excel de items: {e}")
+            self.logger.error(f"[ERROR] Error cargando Excel de items: {e}")
             self.items_data = []
 
     def load_items_excel(self, excel_path: str) -> int:
@@ -232,16 +232,16 @@ class SomexProcessorService:
         # Try exact match first
         for item in self.items_data:
             if item['descripcion'] == product_name_upper:
-                self.logger.debug(f"✅ Match EXACTO encontrado: '{item['descripcion']}' → Ref: {item['referencia']}")
+                self.logger.debug(f"[Match] Match EXACTO encontrado: '{item['descripcion']}' -> Ref: {item['referencia']}")
                 return item['referencia']
 
         # Try partial match
         for item in self.items_data:
             if product_name_upper in item['descripcion'] or item['descripcion'] in product_name_upper:
-                self.logger.debug(f"✅ Match PARCIAL encontrado: '{item['descripcion']}' → Ref: {item['referencia']}")
+                self.logger.debug(f"[Match] Match PARCIAL encontrado: '{item['descripcion']}' -> Ref: {item['referencia']}")
                 return item['referencia']
 
-        self.logger.debug(f"❌ No se encontró match para: '{product_name_upper}'")
+        self.logger.debug(f"[Match] No se encontro match para: '{product_name_upper}'")
         return None
 
     def extract_xmls_from_zip(self, zip_path: str) -> List[Tuple[str, bytes]]:
@@ -348,19 +348,24 @@ class SomexProcessorService:
 
             # Check if this is an AttachedDocument with embedded Invoice
             if 'AttachedDocument' in tree.tag:
-                self.logger.info("Detected AttachedDocument, extracting data from it")
+                self.logger.info("*** DETECTED AttachedDocument ***")
 
                 # Extract invoice number from AttachedDocument
                 # Try cbc:ID first, then cbc:ParentDocumentID
                 attached_invoice_number = self._get_text(tree, './/cbc:ID')
+                self.logger.info(f"AttachedDocument cbc:ID: '{attached_invoice_number}'")
+
                 if not attached_invoice_number:
                     attached_invoice_number = self._get_text(tree, './/cbc:ParentDocumentID')
+                    self.logger.info(f"AttachedDocument cbc:ParentDocumentID: '{attached_invoice_number}'")
 
                 # Format invoice number (e.g., 2B286170 -> 2B-286170)
                 if attached_invoice_number:
+                    original = attached_invoice_number
                     attached_invoice_number = self._format_invoice_number(attached_invoice_number)
+                    self.logger.info(f"AttachedDocument invoice formatted: '{original}' -> '{attached_invoice_number}'")
 
-                self.logger.info(f"Invoice number from AttachedDocument: {attached_invoice_number}")
+                self.logger.info(f"AttachedDocument invoice number: {attached_invoice_number}")
 
                 # Extract buyer data from ReceiverParty in AttachedDocument
                 receiver_party = tree.find('.//cac:ReceiverParty', self.NAMESPACES)
@@ -391,33 +396,33 @@ class SomexProcessorService:
             # Override with AttachedDocument data if available
             if invoice_data and attached_invoice_number:
                 self.logger.info(
-                    f"🔄 OVERRIDE desde AttachedDocument: {invoice_data.get('invoice_number')} "
-                    f"→ {attached_invoice_number}"
+                    f"*** OVERRIDE desde AttachedDocument: {invoice_data.get('invoice_number')} "
+                    f"-> {attached_invoice_number}"
                 )
                 invoice_data['invoice_number'] = attached_invoice_number
             elif invoice_data:
                 self.logger.info(
-                    f"📋 Usando número de factura del Invoice: {invoice_data.get('invoice_number')}"
+                    f"[Final] Usando numero de factura del Invoice: {invoice_data.get('invoice_number')}"
                 )
 
             if invoice_data and attached_buyer_nit:
                 self.logger.info(
-                    f"Overriding buyer NIT: {invoice_data.get('buyer_nit')} "
+                    f"*** Overriding buyer NIT: {invoice_data.get('buyer_nit')} "
                     f"-> {attached_buyer_nit}"
                 )
                 invoice_data['buyer_nit'] = attached_buyer_nit
 
             if invoice_data and attached_buyer_name:
                 self.logger.info(
-                    f"Overriding buyer name: {invoice_data.get('buyer_name')} "
+                    f"*** Overriding buyer name: {invoice_data.get('buyer_name')} "
                     f"-> {attached_buyer_name}"
                 )
                 invoice_data['buyer_name'] = attached_buyer_name
 
             if invoice_data:
                 self.logger.info("=" * 100)
-                self.logger.info("📄 INFORMACIÓN FINAL DE LA FACTURA:")
-                self.logger.info(f"   Número de Factura: {invoice_data['invoice_number']}")
+                self.logger.info("*** INFORMACION FINAL DE LA FACTURA ***")
+                self.logger.info(f"   Numero de Factura: {invoice_data['invoice_number']}")
                 self.logger.info(f"   Comprador: {invoice_data['buyer_nit']} - {invoice_data['buyer_name']}")
                 self.logger.info(f"   Items a procesar: {len(invoice_data.get('items', []))}")
                 self.logger.info("=" * 100)
@@ -495,18 +500,18 @@ class SomexProcessorService:
         try:
             # Extract invoice number from OrderReference (NOT from main cbc:ID)
             invoice_number = self._get_text(tree, './/cac:OrderReference/cbc:ID')
-            self.logger.info(f"📋 Número de factura desde OrderReference: '{invoice_number}'")
+            self.logger.info(f"[Invoice] Numero de factura desde OrderReference: '{invoice_number}'")
 
             if not invoice_number:
                 # Fallback to main ID if no OrderReference
                 invoice_number = self._get_text(tree, './/cbc:ID')
-                self.logger.info(f"📋 Número de factura desde cbc:ID (fallback): '{invoice_number}'")
+                self.logger.info(f"[Invoice] Numero de factura desde cbc:ID (fallback): '{invoice_number}'")
 
             # Format invoice number (e.g., 2B286170 -> 2B-286170)
             if invoice_number:
                 original_invoice_number = invoice_number
                 invoice_number = self._format_invoice_number(invoice_number)
-                self.logger.info(f"📋 Número de factura formateado: '{original_invoice_number}' → '{invoice_number}'")
+                self.logger.info(f"[Invoice] Numero de factura formateado: '{original_invoice_number}' -> '{invoice_number}'")
 
             # Extract dates
             invoice_date = self._get_text(tree, './/cbc:IssueDate')
@@ -641,7 +646,7 @@ class SomexProcessorService:
                 # Fallback to Description
                 product_name = self._get_text(line_element, './/cac:Item/cbc:Description')
 
-            self.logger.info(f"📦 PRODUCTO DEL XML: '{product_name}'")
+            self.logger.info(f"[ITEM] PRODUCTO DEL XML: '{product_name}'")
 
             # Product code from StandardItemIdentification
             product_code = self._get_text(
@@ -659,23 +664,23 @@ class SomexProcessorService:
             quantity_str = self._get_text(line_element, './/cbc:InvoicedQuantity')
             quantity_original = Decimal(quantity_str) if quantity_str else Decimal('0')
 
-            self.logger.info(f"📊 Cantidad original del XML: {quantity_original}")
+            self.logger.info(f"[ITEM] Cantidad original del XML: {quantity_original}")
 
             # STEP 1: Find reference in Excel
-            self.logger.info(f"\n🔍 PASO 1: Buscando referencia en Excel para: '{product_name}'")
+            self.logger.info(f"\n[PASO 1] Buscando referencia en Excel para: '{product_name}'")
             referencia = self.find_reference_by_description(product_name)
 
             if referencia:
-                self.logger.info(f"✅ REFERENCIA ENCONTRADA EN EXCEL: '{referencia}'")
+                self.logger.info(f"[PASO 1] REFERENCIA ENCONTRADA EN EXCEL: '{referencia}'")
             else:
-                self.logger.warning(f"❌ NO SE ENCONTRÓ referencia en Excel para: '{product_name}'")
+                self.logger.warning(f"[PASO 1] NO SE ENCONTRO referencia en Excel para: '{product_name}'")
 
             # STEP 2: Query Somex API
             quantity_adjusted = None
             api_data_used = False
 
             if referencia and invoice_number and self.api_client:
-                self.logger.info(f"\n🌐 PASO 2: Consultando API Somex")
+                self.logger.info(f"\n[PASO 2] Consultando API Somex")
                 self.logger.info(f"   Factura: {invoice_number}")
                 self.logger.info(f"   Buscando referencia: {referencia}")
 
@@ -683,7 +688,7 @@ class SomexProcessorService:
                 invoice_api_data = self.api_client.get_invoice_data(invoice_number)
 
                 if invoice_api_data:
-                    self.logger.info(f"📊 API respondió con {len(invoice_api_data)} items")
+                    self.logger.info(f"[PASO 2] API respondio con {len(invoice_api_data)} items")
 
                     # Log all references from API with detailed info
                     self.logger.info("   Referencias en la API:")
@@ -694,7 +699,7 @@ class SomexProcessorService:
                         self.logger.info(f"      [{idx}] Ref: {api_ref} | Bultos: {api_bultos} | KG: {api_kg}")
 
                     # Find matching reference
-                    self.logger.info(f"\n🔎 PASO 3: Comparando referencia '{referencia}' (tipo: {type(referencia)}) con items de API")
+                    self.logger.info(f"\n[PASO 3] Comparando referencia '{referencia}' (tipo: {type(referencia)}) con items de API")
 
                     for api_item in invoice_api_data:
                         api_ref = api_item.get('referencia')
@@ -708,7 +713,7 @@ class SomexProcessorService:
                             cantidad_kg = api_item.get('cantidadKg')
 
                             self.logger.info("=" * 100)
-                            self.logger.info("✅✅✅ MATCH ENCONTRADO EN API ✅✅✅")
+                            self.logger.info("*** MATCH ENCONTRADO EN API ***")
                             self.logger.info(f"   Producto: '{product_name}'")
                             self.logger.info(f"   Referencia XML/Excel: {referencia}")
                             self.logger.info(f"   Referencia API: {api_ref}")
@@ -717,7 +722,7 @@ class SomexProcessorService:
                             self.logger.info("=" * 100)
 
                             if cantidad_bultos is not None and cantidad_kg is not None:
-                                self.logger.info(f"🔄 APLICANDO CANTIDADES DE LA API:")
+                                self.logger.info(f"[API] APLICANDO CANTIDADES DE LA API:")
                                 self.logger.info(f"   Cantidad Original (antes): {quantity_original}")
                                 self.logger.info(f"   Cantidad Ajustada (antes): {quantity_adjusted if quantity_adjusted else 'N/A'}")
 
@@ -725,28 +730,28 @@ class SomexProcessorService:
                                 quantity_adjusted = Decimal(str(cantidad_kg))
                                 api_data_used = True
 
-                                self.logger.info(f"   → Cantidad Original (después): {quantity_original} (cantidadBultos)")
-                                self.logger.info(f"   → Cantidad Ajustada (después): {quantity_adjusted} (cantidadKg)")
+                                self.logger.info(f"   -> Cantidad Original (despues): {quantity_original} (cantidadBultos)")
+                                self.logger.info(f"   -> Cantidad Ajustada (despues): {quantity_adjusted} (cantidadKg)")
                                 self.logger.info("=" * 100)
                                 break
                             else:
-                                self.logger.warning(f"⚠️  API tiene datos incompletos:")
+                                self.logger.warning(f"[WARNING] API tiene datos incompletos:")
                                 self.logger.warning(f"   cantidadBultos is None: {cantidad_bultos is None}")
                                 self.logger.warning(f"   cantidadKg is None: {cantidad_kg is None}")
 
                     if not api_data_used:
-                        self.logger.warning(f"❌ NO SE ENCONTRÓ la referencia '{referencia}' en los items de la API")
+                        self.logger.warning(f"[WARNING] NO SE ENCONTRO la referencia '{referencia}' en los items de la API")
                 else:
-                    self.logger.warning(f"⚠️  API no respondió datos para factura {invoice_number}")
+                    self.logger.warning(f"[WARNING] API no respondio datos para factura {invoice_number}")
             else:
                 if not referencia:
-                    self.logger.warning("⚠️  No se puede consultar API: No hay referencia")
+                    self.logger.warning("[WARNING] No se puede consultar API: No hay referencia")
                 elif not invoice_number:
-                    self.logger.warning("⚠️  No se puede consultar API: No hay número de factura")
+                    self.logger.warning("[WARNING] No se puede consultar API: No hay numero de factura")
 
             # Fallback: calculate using kilos from description (old method)
             if not api_data_used:
-                self.logger.info(f"\n⚠️  USANDO MÉTODO FALLBACK (cálculo manual de kilos)")
+                self.logger.info(f"\n[FALLBACK] USANDO METODO FALLBACK (calculo manual de kilos)")
 
                 # Try to extract kilos from database item description first
                 kilos = None
@@ -817,11 +822,11 @@ class SomexProcessorService:
             line_total = taxable_amount + tax_amount
 
             # FINAL LOG: Show what will be saved to Excel
-            self.logger.info("\n📝 VALORES FINALES PARA EXCEL:")
+            self.logger.info("\n[FINAL] VALORES FINALES PARA EXCEL:")
             self.logger.info(f"   Producto: '{product_name}'")
             self.logger.info(f"   Cantidad Original (Columna 21 - Bultos): {quantity_original}")
             self.logger.info(f"   Cantidad Ajustada (Columna 5 - KG): {quantity_adjusted}")
-            self.logger.info(f"   Fuente de datos: {'✅ API de Somex' if api_data_used else '⚠️ Método Fallback'}")
+            self.logger.info(f"   Fuente de datos: {'[API] API de Somex' if api_data_used else '[FALLBACK] Metodo Fallback'}")
             self.logger.info("=" * 100)
 
             return {

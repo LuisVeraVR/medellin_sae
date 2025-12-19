@@ -56,7 +56,7 @@ class ProcessingWorker(QThread):
             self.logger.addHandler(file_handler)
 
             self.progress_update.emit("=" * 80)
-            self.progress_update.emit(f"📄 LOGS DETALLADOS: {self.log_file_path}")
+            self.progress_update.emit(f"[LOGS] LOGS DETALLADOS: {self.log_file_path}")
             self.progress_update.emit("   Abre este archivo para ver:")
             self.progress_update.emit("   - Comparaciones con Excel")
             self.progress_update.emit("   - Referencias encontradas en API")
@@ -81,7 +81,7 @@ class ProcessingWorker(QThread):
 
             # PASO 1: Descargar ListadoItems.xlsx desde /Items
             self.progress_update.emit("=" * 80)
-            self.progress_update.emit("📁 DESCARGANDO LISTADO DE ITEMS DESDE SFTP...")
+            self.progress_update.emit("[SFTP] DESCARGANDO LISTADO DE ITEMS DESDE SFTP...")
             self.progress_update.emit("=" * 80)
 
             items_remote_path = "/Items/ListadoItems.xlsx"
@@ -95,28 +95,28 @@ class ProcessingWorker(QThread):
             )
 
             if items_success:
-                self.progress_update.emit(f"✅ Archivo de items descargado exitosamente")
+                self.progress_update.emit(f"[OK] Archivo de items descargado exitosamente")
 
                 # Cargar items en el procesador
-                self.progress_update.emit("📋 Cargando items en memoria...")
+                self.progress_update.emit("[ITEMS] Cargando items en memoria...")
                 try:
                     items_count = self.processor.load_items_excel(str(items_local_path))
-                    self.progress_update.emit(f"✅ {items_count} ITEMS CARGADOS EN MEMORIA")
-                    self.progress_update.emit("   → Se usarán para buscar referencias por nombre de producto")
-                    self.progress_update.emit("   → Se compararán con la API de Somex para obtener cantidades")
+                    self.progress_update.emit(f"[OK] {items_count} ITEMS CARGADOS EN MEMORIA")
+                    self.progress_update.emit("   -> Se usaran para buscar referencias por nombre de producto")
+                    self.progress_update.emit("   -> Se compararan con la API de Somex para obtener cantidades")
                     self.progress_update.emit("=" * 80)
                 except Exception as e:
                     self.logger.error(f"Error cargando items: {e}")
-                    self.progress_update.emit(f"⚠️  Error cargando items: {e}")
-                    self.progress_update.emit("⚠️  Continuando sin archivo de items (se usará método fallback)")
+                    self.progress_update.emit(f"[WARNING] Error cargando items: {e}")
+                    self.progress_update.emit("[WARNING] Continuando sin archivo de items (se usara metodo fallback)")
             else:
                 self.logger.warning(f"No se pudo descargar ListadoItems.xlsx: {items_message}")
-                self.progress_update.emit(f"⚠️  No se pudo descargar ListadoItems.xlsx: {items_message}")
-                self.progress_update.emit("⚠️  Continuando sin archivo de items (se usará método fallback)")
+                self.progress_update.emit(f"[WARNING] No se pudo descargar ListadoItems.xlsx: {items_message}")
+                self.progress_update.emit("[WARNING] Continuando sin archivo de items (se usara metodo fallback)")
                 self.progress_update.emit("=" * 80)
 
             # PASO 2: Listar y procesar ZIPs
-            self.progress_update.emit("📦 Listando archivos ZIP en /DocumentosPendientes...")
+            self.progress_update.emit("[ZIP] Listando archivos ZIP en /DocumentosPendientes...")
 
             # Listar archivos ZIP
             all_files = self.sftp_client.list_files(self.remote_dir)
@@ -948,8 +948,8 @@ class SomexTab(QWidget):
             )
             self.items_status_label.setStyleSheet("color: green;")
 
-            self.progress_text.append(f"✅ {count} items cargados exitosamente en memoria")
-            self.progress_text.append("Los items están listos para usar en el procesamiento de facturas.")
+            self.progress_text.append(f"[OK] {count} items cargados exitosamente en memoria")
+            self.progress_text.append("Los items estan listos para usar en el procesamiento de facturas.")
             self.progress_text.append("=" * 80)
 
             QMessageBox.information(
