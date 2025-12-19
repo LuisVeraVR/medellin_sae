@@ -223,20 +223,25 @@ class SomexProcessorService:
             Product reference or None
         """
         if not product_name or not self.items_data:
+            self.logger.debug(f"Cannot search: product_name={bool(product_name)}, items_data={len(self.items_data) if self.items_data else 0}")
             return None
 
         product_name_upper = product_name.strip().upper()
+        self.logger.debug(f"Buscando: '{product_name_upper}' en {len(self.items_data)} items")
 
         # Try exact match first
         for item in self.items_data:
             if item['descripcion'] == product_name_upper:
+                self.logger.debug(f"✅ Match EXACTO encontrado: '{item['descripcion']}' → Ref: {item['referencia']}")
                 return item['referencia']
 
         # Try partial match
         for item in self.items_data:
             if product_name_upper in item['descripcion'] or item['descripcion'] in product_name_upper:
+                self.logger.debug(f"✅ Match PARCIAL encontrado: '{item['descripcion']}' → Ref: {item['referencia']}")
                 return item['referencia']
 
+        self.logger.debug(f"❌ No se encontró match para: '{product_name_upper}'")
         return None
 
     def extract_xmls_from_zip(self, zip_path: str) -> List[Tuple[str, bytes]]:
@@ -667,17 +672,22 @@ class SomexProcessorService:
                 if invoice_api_data:
                     self.logger.info(f"📊 API respondió con {len(invoice_api_data)} items")
 
-                    # Log all references from API
+                    # Log all references from API with detailed info
                     self.logger.info("   Referencias en la API:")
                     for idx, api_item in enumerate(invoice_api_data, 1):
                         api_ref = api_item.get('referencia', 'N/A')
-                        self.logger.info(f"      [{idx}] Ref: {api_ref}")
+                        api_bultos = api_item.get('cantidadBultos', 'N/A')
+                        api_kg = api_item.get('cantidadKg', 'N/A')
+                        self.logger.info(f"      [{idx}] Ref: {api_ref} | Bultos: {api_bultos} | KG: {api_kg}")
 
                     # Find matching reference
-                    self.logger.info(f"\n🔎 PASO 3: Comparando referencia '{referencia}' con items de API")
+                    self.logger.info(f"\n🔎 PASO 3: Comparando referencia '{referencia}' (tipo: {type(referencia)}) con items de API")
 
                     for api_item in invoice_api_data:
                         api_ref = api_item.get('referencia')
+
+                        # Log detailed comparison
+                        self.logger.debug(f"   Comparando: Excel='{referencia}' vs API='{api_ref}' | Iguales: {str(api_ref) == str(referencia)}")
 
                         if str(api_ref) == str(referencia):
                             # MATCH FOUND!
@@ -687,16 +697,29 @@ class SomexProcessorService:
                             self.logger.info("=" * 100)
                             self.logger.info("✅✅✅ MATCH ENCONTRADO EN API ✅✅✅")
                             self.logger.info(f"   Producto: '{product_name}'")
-                            self.logger.info(f"   Referencia: {referencia}")
-                            self.logger.info(f"   cantidadBultos: {cantidad_bultos}")
-                            self.logger.info(f"   cantidadKg: {cantidad_kg}")
+                            self.logger.info(f"   Referencia XML/Excel: {referencia}")
+                            self.logger.info(f"   Referencia API: {api_ref}")
+                            self.logger.info(f"   cantidadBultos de API: {cantidad_bultos}")
+                            self.logger.info(f"   cantidadKg de API: {cantidad_kg}")
                             self.logger.info("=" * 100)
 
                             if cantidad_bultos is not None and cantidad_kg is not None:
+                                self.logger.info(f"🔄 APLICANDO CANTIDADES DE LA API:")
+                                self.logger.info(f"   Cantidad Original (antes): {quantity_original}")
+                                self.logger.info(f"   Cantidad Ajustada (antes): {quantity_adjusted if quantity_adjusted else 'N/A'}")
+
                                 quantity_original = Decimal(str(cantidad_bultos))
                                 quantity_adjusted = Decimal(str(cantidad_kg))
                                 api_data_used = True
+
+                                self.logger.info(f"   → Cantidad Original (después): {quantity_original} (cantidadBultos)")
+                                self.logger.info(f"   → Cantidad Ajustada (después): {quantity_adjusted} (cantidadKg)")
+                                self.logger.info("=" * 100)
                                 break
+                            else:
+                                self.logger.warning(f"⚠️  API tiene datos incompletos:")
+                                self.logger.warning(f"   cantidadBultos is None: {cantidad_bultos is None}")
+                                self.logger.warning(f"   cantidadKg is None: {cantidad_kg is None}")
 
                     if not api_data_used:
                         self.logger.warning(f"❌ NO SE ENCONTRÓ la referencia '{referencia}' en los items de la API")
@@ -780,11 +803,19 @@ class SomexProcessorService:
             tax_amount = taxable_amount * (tax_percentage / Decimal('100'))
             line_total = taxable_amount + tax_amount
 
+            # FINAL LOG: Show what will be saved to Excel
+            self.logger.info("\n📝 VALORES FINALES PARA EXCEL:")
+            self.logger.info(f"   Producto: '{product_name}'")
+            self.logger.info(f"   Cantidad Original (Columna 21 - Bultos): {quantity_original}")
+            self.logger.info(f"   Cantidad Ajustada (Columna 5 - KG): {quantity_adjusted}")
+            self.logger.info(f"   Fuente de datos: {'✅ API de Somex' if api_data_used else '⚠️ Método Fallback'}")
+            self.logger.info("=" * 100)
+
             return {
                 'product_name': product_name or "",
                 'product_code': product_code or "SPN-1",  # Default code
                 'quantity': quantity_adjusted,  # Adjusted quantity (with kilos)
-                'quantity_original': quantity_original,  # Original from XML
+                'quantity_original': quantity_original,  # Original from XML or API
                 'quantity_adjusted': quantity_adjusted,  # For clarity
                 'unit_of_measure': 'KG',  # Always KG for Somex
                 'unit_price': unit_price,
