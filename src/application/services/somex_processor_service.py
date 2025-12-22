@@ -117,12 +117,152 @@ class SomexProcessorService:
         self,
         repository: SomexRepository,
         logger: logging.Logger,
-        output_dir: str = "output/somex"
+        output_dir: str = "output/somex",
+        items_excel_path: Optional[str] = None
     ):
         self.repository = repository
         self.logger = logger
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Load items from Excel if path provided
+        self.items_data = []
+        if items_excel_path:
+            self.items_data = self._load_items_from_excel(items_excel_path)
+
+    def _load_items_from_excel(self, excel_path: str) -> List[Dict[str, Any]]:
+        """
+        Load items from Excel file (Copia de ListadoItems.xlsx)
+
+        Expected columns:
+        CodigoItem, Referencia, Descripcion, IdPlan, DescPlan,
+        IdMayor, DescripcionPlan, RowIdItem, Categoria, IDBulto, Kilos
+
+        Args:
+            excel_path: Path to Excel file
+
+        Returns:
+            List of item dictionaries with Kilos information
+        """
+        items = []
+
+        try:
+            self.logger.info(f"Loading items from Excel: {excel_path}")
+            wb = openpyxl.load_workbook(excel_path, read_only=True)
+            ws = wb.active
+
+            # Read headers from first row
+            headers = []
+            for cell in ws[1]:
+                headers.append(cell.value)
+
+            self.logger.info(f"Excel headers: {headers}")
+
+            # Map expected columns (case insensitive)
+            column_map = {}
+            expected_columns = [
+                'CodigoItem', 'Referencia', 'Descripcion', 'IdPlan', 'DescPlan',
+                'IdMayor', 'DescripcionPlan', 'RowIdItem', 'Categoria', 'IDBulto', 'Kilos'
+            ]
+
+            for expected in expected_columns:
+                for idx, header in enumerate(headers):
+                    if header and expected.lower() == str(header).lower().replace(' ', ''):
+                        column_map[expected] = idx
+                        break
+
+            self.logger.info(f"Column mapping: {column_map}")
+
+            # Verify that Kilos column exists
+            if 'Kilos' not in column_map:
+                self.logger.error("Column 'Kilos' not found in Excel file!")
+                self.logger.error(f"Available columns: {headers}")
+                wb.close()
+                return []
+
+            # Read data rows
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                try:
+                    # Extract kilos value
+                    kilos_value = row[column_map.get('Kilos', -1)] if 'Kilos' in column_map else None
+
+                    # Convert kilos to Decimal
+                    if kilos_value is not None:
+                        try:
+                            kilos = Decimal(str(kilos_value))
+                        except:
+                            kilos = None
+                    else:
+                        kilos = None
+
+                    item = {
+                        'codigo_item': str(row[column_map.get('CodigoItem', 0)] or '').strip(),
+                        'referencia': str(row[column_map.get('Referencia', 1)] or '').strip(),
+                        'descripcion': str(row[column_map.get('Descripcion', 2)] or '').strip().upper(),
+                        'id_plan': str(row[column_map.get('IdPlan', 3)] or '').strip(),
+                        'desc_plan': str(row[column_map.get('DescPlan', 4)] or '').strip(),
+                        'id_mayor': str(row[column_map.get('IdMayor', 5)] or '').strip(),
+                        'descripcion_plan': str(row[column_map.get('DescripcionPlan', 6)] or '').strip(),
+                        'row_id_item': str(row[column_map.get('RowIdItem', 7)] or '').strip(),
+                        'categoria': str(row[column_map.get('Categoria', 8)] or '').strip(),
+                        'id_bulto': str(row[column_map.get('IDBulto', 9)] or '').strip(),
+                        'kilos': kilos,
+                    }
+
+                    # Only add if has descripcion and kilos
+                    if item['descripcion'] and item['kilos'] is not None:
+                        items.append(item)
+
+                except Exception as e:
+                    self.logger.warning(f"Error reading row from Excel: {e}")
+                    continue
+
+            wb.close()
+
+            self.logger.info(f"Loaded {len(items)} items from Excel with Kilos information")
+
+        except Exception as e:
+            self.logger.error(f"Error loading items from Excel: {e}")
+            raise
+
+        return items
+
+    def _find_item_by_description(self, product_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Find item in Excel data by matching product description
+
+        Args:
+            product_name: Product name from invoice
+
+        Returns:
+            Item dictionary with Kilos information or None
+        """
+        if not product_name or not self.items_data:
+            return None
+
+        # Normalize product name for comparison
+        product_name_normalized = product_name.strip().upper()
+
+        # Try exact match first
+        for item in self.items_data:
+            if item['descripcion'] == product_name_normalized:
+                self.logger.info(
+                    f"Found exact match for '{product_name}': "
+                    f"{item['descripcion']} (Kilos: {item['kilos']})"
+                )
+                return item
+
+        # Try partial match (product name contains description or vice versa)
+        for item in self.items_data:
+            if item['descripcion'] in product_name_normalized or product_name_normalized in item['descripcion']:
+                self.logger.info(
+                    f"Found partial match for '{product_name}': "
+                    f"{item['descripcion']} (Kilos: {item['kilos']})"
+                )
+                return item
+
+        self.logger.warning(f"No match found in Excel for product: '{product_name}'")
+        return None
 
     def extract_xmls_from_zip(self, zip_path: str) -> List[Tuple[str, bytes]]:
         """
@@ -455,38 +595,10 @@ class SomexProcessorService:
             self.logger.error(f"Error parsing Somex invoice: {e}", exc_info=True)
             return None
 
-    def _extract_kilos_from_name(self, product_name: str) -> Optional[Decimal]:
-        """
-        Extract kilos from product name
-        Example: "SAL SOMEX CEBA X 40 KILOS" -> 40
-
-        Args:
-            product_name: Product name string
-
-        Returns:
-            Kilos as Decimal or None if not found
-        """
-        import re
-
-        try:
-            # Look for pattern "X {number} KILO"
-            pattern = r'[Xx]\s*(\d+(?:\.\d+)?)\s*[Kk][Ii][Ll]'
-            match = re.search(pattern, product_name)
-
-            if match:
-                kilos = Decimal(match.group(1))
-                self.logger.debug(f"Extracted {kilos} kilos from '{product_name}'")
-                return kilos
-
-            return None
-
-        except Exception as e:
-            self.logger.error(f"Error extracting kilos from name: {e}")
-            return None
-
     def _parse_somex_line_item(self, line_element) -> Optional[Dict[str, Any]]:
         """
         Parse a single invoice line item using Somex-specific rules
+        Uses Excel data to find Kilos by matching product description
 
         Args:
             line_element: InvoiceLine XML element
@@ -517,44 +629,28 @@ class SomexProcessorService:
             quantity_str = self._get_text(line_element, './/cbc:InvoicedQuantity')
             quantity_original = Decimal(quantity_str) if quantity_str else Decimal('0')
 
-            # Try to extract kilos from database item description first
+            # Find item in Excel by matching description
             kilos = None
-            item_description = None
-            if product_code and self.repository:
-                item_data = self.repository.get_item_by_code(product_code)
-                if item_data:
-                    item_description = item_data.get('descripcion', '')
-                    self.logger.debug(
-                        f"Found item in DB: code={product_code}, desc={item_description}"
-                    )
-                    kilos = self._extract_kilos_from_name(item_description)
-                    if kilos:
-                        self.logger.info(
-                            f"Extracted {kilos} kilos from DB description for code {product_code}"
-                        )
+            excel_item = self._find_item_by_description(product_name)
 
-            # Fallback to extracting kilos from XML product name
-            if not kilos:
-                self.logger.debug(
-                    f"No kilos found in DB for code {product_code}, trying XML product name"
+            if excel_item:
+                kilos = excel_item.get('kilos')
+                self.logger.info(
+                    f"Found item in Excel for '{product_name}': "
+                    f"Description='{excel_item['descripcion']}', Kilos={kilos}"
                 )
-                kilos = self._extract_kilos_from_name(product_name)
-                if kilos:
-                    self.logger.info(
-                        f"Extracted {kilos} kilos from XML product name"
-                    )
 
             # Calculate adjusted quantity (quantity * kilos)
             if kilos:
                 quantity_adjusted = quantity_original * kilos
-                self.logger.debug(
+                self.logger.info(
                     f"Adjusted quantity: {quantity_original} * {kilos} = {quantity_adjusted}"
                 )
             else:
                 quantity_adjusted = quantity_original
                 self.logger.warning(
-                    f"Could not extract kilos for product code '{product_code}' "
-                    f"(name: '{product_name}'), using original quantity"
+                    f"Could not find kilos for product '{product_name}', "
+                    f"using original quantity"
                 )
 
             # Taxable amount (subtotal before tax)
