@@ -5,7 +5,7 @@
       "name": "Pulgarin",
       "enabled": true,
       "email_config": {
-        "search_criteria": "(UNSEEN SUBJECT \"PULGARIN\")",
+        "search_criteria": "(UNSEEN SUBJECT \"FCT\")",
         "imap_server": "outlook.office365.com"
       },
       "xml_config": {
